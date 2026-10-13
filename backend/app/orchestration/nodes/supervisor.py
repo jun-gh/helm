@@ -15,10 +15,10 @@ def decide_next_agent_fallback(
     objective: str,
     completed_workers: list[str],
 ) -> Literal["researcher", "coder", "FINISH"]:
-    """Deterministic routing fallback when Gemini is unavailable."""
+    """Deterministic routing fallback based on keywords and uncompleted specialists."""
     obj_lower = objective.lower()
     needs_research = any(w in obj_lower for w in ["research", "audit", "investigate", "compare", "plan", "analyze"])
-    needs_code = any(w in obj_lower for w in ["code", "implement", "build", "scaffold", "create", "write", "develop"])
+    needs_code = any(w in obj_lower for w in ["code", "implement", "build", "scaffold", "create", "write", "develop", "session"])
 
     if "researcher" not in completed_workers and (needs_research or not needs_code):
         return "researcher"
@@ -32,11 +32,11 @@ async def decide_next_agent_with_gemini(
     completed_workers: list[str],
     research_notes: list[str],
     code_artifacts: list[dict],
-) -> Literal["researcher", "coder", "FINISH"]:
+) -> tuple[Literal["researcher", "coder", "FINISH"], str]:
     """Use Google Gemini to dynamically select the best worker for the objective."""
     settings = get_settings()
     if not settings.gemini_api_key:
-        return decide_next_agent_fallback(objective, completed_workers)
+        return decide_next_agent_fallback(objective, completed_workers), ""
 
     try:
         from langchain_core.messages import HumanMessage, SystemMessage
@@ -70,7 +70,6 @@ async def decide_next_agent_with_gemini(
         ]
         response = await llm.ainvoke(messages)
         text = str(response.content).strip()
-        # Clean any markdown code blocks
         if text.startswith("```"):
             text = text.split("```")[1]
             if text.startswith("json"):
@@ -78,14 +77,15 @@ async def decide_next_agent_with_gemini(
         data = json.loads(text.strip())
         choice = data.get("next_agent", "FINISH")
         if choice in ("researcher", "coder", "FINISH"):
-            # Don't invoke already completed worker
             if choice in completed_workers:
-                return "coder" if "coder" not in completed_workers else "FINISH"
-            return choice
+                return ("coder" if "coder" not in completed_workers else "FINISH"), ""
+            return choice, ""
     except Exception as exc:
+        err_msg = f"Gemini router ({exc.__class__.__name__}: {str(exc)[:90]})"
         logger.warning("Gemini supervisor routing fallback triggered: %s", exc)
+        return decide_next_agent_fallback(objective, completed_workers), err_msg
 
-    return decide_next_agent_fallback(objective, completed_workers)
+    return decide_next_agent_fallback(objective, completed_workers), ""
 
 
 async def supervisor_node(state: HelmGraphState) -> HelmGraphState:
@@ -98,19 +98,21 @@ async def supervisor_node(state: HelmGraphState) -> HelmGraphState:
     completed_workers = list(state.get("completed_workers", []))
     research_notes = list(state.get("research_notes", []))
     code_artifacts = list(state.get("code_artifacts", []))
-    tool_results = list(state.get("tool_results", []))
 
     # Determine if another worker should be dispatched
     if iteration < max_iterations:
-        next_worker = await decide_next_agent_with_gemini(
+        next_worker, router_err = await decide_next_agent_with_gemini(
             objective, completed_workers, research_notes, code_artifacts
         )
         if next_worker in ("researcher", "coder"):
+            detail = f"Dispatched specialized {next_worker} worker (pass {iteration + 1}/{max_iterations})."
+            if router_err:
+                detail += f" [{router_err}]"
             trace.append(
                 TraceStep(
                     node="supervisor",
                     action=f"route_to_{next_worker}",
-                    detail=f"Dispatched specialized {next_worker} worker (pass {iteration + 1}/{max_iterations}).",
+                    detail=detail,
                     timestamp=datetime.now(UTC).isoformat(),
                 )
             )
@@ -122,6 +124,7 @@ async def supervisor_node(state: HelmGraphState) -> HelmGraphState:
 
     # All worker passes complete -> synthesize final mission report
     final_response = ""
+    synthesis_err = ""
     if settings.gemini_api_key:
         try:
             from langchain_core.messages import HumanMessage, SystemMessage
@@ -157,6 +160,7 @@ async def supervisor_node(state: HelmGraphState) -> HelmGraphState:
             ai_msg = await llm.ainvoke(messages)
             final_response = str(ai_msg.content)
         except Exception as exc:
+            synthesis_err = f"Gemini synthesizer ({exc.__class__.__name__}: {str(exc)[:90]})"
             logger.warning("Gemini synthesis fallback triggered: %s", exc)
 
     if not final_response:
@@ -168,12 +172,18 @@ async def supervisor_node(state: HelmGraphState) -> HelmGraphState:
             f"Synthesized Research:\n{res_summary}\n\n"
             f"Generated Code / Architecture:\n{code_summary}"
         )
+        if synthesis_err:
+            final_response += f"\n\n*(Notice: {synthesis_err}. Switched to local structured synthesis.)*"
+
+    finish_detail = f"Unified reports from {completed_workers} into final mission synthesis."
+    if synthesis_err:
+        finish_detail += f" [{synthesis_err}]"
 
     trace.append(
         TraceStep(
             node="supervisor",
             action="synthesize_and_finish",
-            detail=f"Unified reports from {completed_workers} into final mission synthesis.",
+            detail=finish_detail,
             timestamp=datetime.now(UTC).isoformat(),
         )
     )
