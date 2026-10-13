@@ -1,0 +1,43 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --brand-accent-light: #0284c7;
+  --brand-accent-dark: #38bdf8;
+  --accent-color: var(--brand-accent-light);
+
+  @media (prefers-color-scheme: dark) {
+    --accent-color: var(--brand-accent-dark);
+  }
+
+  @supports (color: light-dark(white, black)) {
+    --accent-color: light-dark(var(--brand-accent-light), var(--brand-accent-dark));
+  }
+
+  color-scheme: light dark;
+  accent-color: var(--accent-color);
+}
+
+body {
+  line-height: 1.5;
+  text-align: start;
+  overflow-wrap: break-word;
+}
+
+h1,
+h2,
+h3 {
+  text-wrap: balance;
+}
+
+p {
+  text-wrap: pretty;
+  max-width: 80ch;
+}
+
+pre,
+code {
+  color-scheme: dark;
+  accent-color: var(--accent-color);
+}

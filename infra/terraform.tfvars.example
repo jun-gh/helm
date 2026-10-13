@@ -1,0 +1,5 @@
+project_id         = "your-gcp-project-id"
+region             = "us-central1"
+firestore_location = "nam5"
+github_repository  = "your-github-username/helm"
+cors_origins       = "http://localhost:4200,https://helm.vercel.app"
