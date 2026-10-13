@@ -27,11 +27,20 @@ export interface TraceStep {
   timestamp: string;
 }
 
+export interface CodeArtifact {
+  objective: string;
+  snippet: string;
+  inspector_verdict: string;
+}
+
 export interface AgentRunResponse {
   thread_id: string;
   objective: string;
   final_response: string;
   trace: TraceStep[];
+  completed_workers: string[];
+  research_notes: string[];
+  code_artifacts: CodeArtifact[];
   tool_results: Record<string, unknown>[];
   state_backend: string;
 }
@@ -49,7 +58,7 @@ export class HelmApiService {
     return this.http.get<MCPTool[]>(`${this.baseUrl}/tools`);
   }
 
-  runAgent(objective: string, maxIterations = 1): Observable<AgentRunResponse> {
+  runAgent(objective: string, maxIterations = 3): Observable<AgentRunResponse> {
     return this.http.post<AgentRunResponse>(`${this.baseUrl}/agents/run`, {
       objective,
       max_iterations: maxIterations,

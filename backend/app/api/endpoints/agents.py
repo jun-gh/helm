@@ -21,7 +21,7 @@ class AgentRunRequest(BaseModel):
 
     objective: str = Field(..., min_length=3, max_length=2000)
     thread_id: str | None = Field(default=None)
-    max_iterations: int = Field(default=1, ge=1, le=5)
+    max_iterations: int = Field(default=3, ge=1, le=5)
 
 
 class AgentRunResponse(BaseModel):
@@ -31,6 +31,9 @@ class AgentRunResponse(BaseModel):
     objective: str
     final_response: str
     trace: list[TraceStep]
+    completed_workers: list[str] = Field(default_factory=list)
+    research_notes: list[str] = Field(default_factory=list)
+    code_artifacts: list[dict[str, Any]] = Field(default_factory=list)
     tool_results: list[dict[str, Any]]
     state_backend: str
 
@@ -40,7 +43,7 @@ async def run_orchestration(
     payload: AgentRunRequest,
     db: AsyncSession = Depends(get_db_session),
 ) -> AgentRunResponse:
-    """Execute the Helm LangGraph Supervisor-Worker workflow and persist state."""
+    """Execute the Helm LangGraph Multi-Worker workflow and persist state."""
     thread_id = payload.thread_id or f"helm-{uuid4().hex[:10]}"
 
     initial_state: HelmGraphState = {
@@ -48,6 +51,9 @@ async def run_orchestration(
         "objective": payload.objective,
         "iteration": 0,
         "max_iterations": payload.max_iterations,
+        "completed_workers": [],
+        "research_notes": [],
+        "code_artifacts": [],
         "tool_results": [],
         "trace": [],
         "final_response": "",
@@ -73,6 +79,9 @@ async def run_orchestration(
         objective=payload.objective,
         final_response=final_state.get("final_response", ""),
         trace=final_state.get("trace", []),
+        completed_workers=final_state.get("completed_workers", []),
+        research_notes=final_state.get("research_notes", []),
+        code_artifacts=final_state.get("code_artifacts", []),
         tool_results=final_state.get("tool_results", []),
         state_backend=state_store.backend_mode,
     )
