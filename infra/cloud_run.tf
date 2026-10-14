@@ -68,6 +68,11 @@ resource "google_cloud_run_v2_service" "helm_backend" {
       }
 
       env {
+        name  = "GEMINI_MODEL"
+        value = "gemini-3.8-flash"
+      }
+
+      env {
         name = "DATABASE_URL"
         value_source {
           secret_key_ref {

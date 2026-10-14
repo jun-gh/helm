@@ -27,7 +27,7 @@ class Settings(BaseSettings):
 
     # Google Gemini API
     gemini_api_key: str = Field(default="")
-    gemini_model: str = Field(default="gemini-2.0-flash")
+    gemini_model: str = Field(default="gemini-3.8-flash")
 
     # Firestore State & Memory
     gcp_project_id: str = Field(default="")
