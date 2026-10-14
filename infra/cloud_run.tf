@@ -2,6 +2,8 @@
 resource "google_service_account" "cloud_run_runtime" {
   account_id   = "helm-cloud-run-sa"
   display_name = "Helm Cloud Run Runtime Service Account"
+
+  depends_on = [google_project_service.enabled_apis]
 }
 
 resource "google_project_iam_member" "firestore_user" {
@@ -65,6 +67,11 @@ resource "google_cloud_run_v2_service" "helm_backend" {
       env {
         name  = "CORS_ORIGINS"
         value = var.cors_origins
+      }
+
+      env {
+        name  = "GEMINI_MODEL"
+        value = "gemini-3.8-flash"
       }
 
       env {

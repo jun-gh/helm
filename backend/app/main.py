@@ -38,9 +38,9 @@ def create_app() -> FastAPI:
     settings = get_settings()
     application = FastAPI(
         title=settings.app_name,
-        version="0.1.0",
-        description="Multi-Agent Orchestration System with LangGraph, Gemini, Firestore, and MCP",
-        lifespan=lifespan,
+        description=(
+            "Multi-Agent Orchestration System with LangGraph, Gemini, Neon Postgres, and MCP"
+        ),
     )
 
     application.add_middleware(

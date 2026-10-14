@@ -12,12 +12,12 @@
 | **Agent Orchestration** | LangGraph (Supervisor-Worker Multi-Node StateGraph) | Deterministic routing + LLM steering |
 | **AI / LLM Layer** | Google Gemini API (`google-genai`, `gemini-3.8-flash`) | Free/Pay-as-you-go tier with fail-fast retries |
 | **Tool Layer** | Model Context Protocol (`mcp`) | Extensible MCP tool client registry |
-| **State & Memory** | Google Cloud Firestore (Native Mode) | 1 GiB + 50k reads/day free + local fallback |
+| **State & Memory** | In-Memory Session Cache / Checkpoint store | Scale-to-zero memory fallback + optional Firestore |
 | **Relational DB** | SQLite (Local Dev) / Neon Serverless Postgres (Prod) | Scale-to-zero compute (`NullPool`) |
 | **Frontend** | Angular 19+ Standalone SPA + Tailwind CSS | Hosted on Vercel (Hobby free tier) |
-| **Cloud Compute** | Google Cloud Run v2 | `min_instance_count = 0` (Scale-to-Zero) |
-| **Container Registry** | Google Artifact Registry (GAR) + GHCR mirror | Auto-cleanup policy (keeps last 5 images) |
-| **IaC & CI/CD** | Terraform / OpenTofu + GitHub Actions (OIDC) | Keyless Workload Identity Federation |
+| **Cloud Compute** | Render.com Web Service (Docker runtime) | Free tier (750 hrs/month, scale-to-zero idle) |
+| **Container / Builds**| Render Git Build & GitHub Container Registry (GHCR) | Continuous auto-deploy directly from Git |
+| **IaC & Blueprints** | Render Blueprint (`render.yaml`) + GitHub Actions CI | Declarative infrastructure as code |
 
 ---
 
@@ -94,24 +94,30 @@ The frontend is built using **Angular 19 Standalone Components** and **Signals**
 
 ```text
 helm/
-├── .github/workflows/   # CI (Ruff, Pytest, Angular, Terraform) & CD (OIDC -> GAR/GHCR -> Cloud Run)
-├── backend/             # FastAPI + LangGraph + Gemini + MCP + SQLAlchemy + Firestore
+├── .github/workflows/   # CI (Ruff, Pytest, Angular, Terraform validation)
+├── backend/             # FastAPI + LangGraph + Gemini + MCP + Neon Postgres / SQLite
 │   ├── app/
 │   │   ├── api/endpoints/         # Health & Agent dispatch endpoints
 │   │   ├── core/                  # Settings, database session, MCP client registry
+│   │   ├── db/                    # SQLAlchemy models & serverless session manager
+│   │   ├── memory/                # Session memory store with scale-to-zero fallback
 │   │   └── orchestration/         # LangGraph graph definition, state, & specialized worker nodes
 │   │       ├── graph.py           # StateGraph builder and routing conditions
 │   │       ├── state.py           # Typed AgentState with trace history & code artifacts
 │   │       └── nodes/             # supervisor.py, researcher.py, coder.py
+│   ├── Dockerfile                 # Portable multi-stage Docker build with uv
+│   └── pyproject.toml             # Python dependencies and tool configs
 ├── frontend/            # Angular 19+ Standalone SPA + Tailwind CSS + Vercel config
 │   ├── src/
 │   │   ├── app/
 │   │   │   ├── core/services/     # HelmApiService with typed responses and error handling
 │   │   │   └── features/dashboard/# Steering dashboard, telemetry, presets & trace viewer
+│   │   ├── environments/          # Environment configs (environment.prod.ts -> Render backend)
 │   │   ├── styles.css             # Root CSS variables & base typography
 │   │   └── index.html             # Entry HTML with canvas background
 │   └── tailwind.config.js         # Helm design system tokens (canvas, teal, slate, coral)
-├── infra/               # Terraform / OpenTofu modules for GCP Cloud Run, Firestore, GAR, OIDC
+├── infra/               # Optional / Reference Terraform modules (GCP / multi-cloud IaC)
+├── render.yaml          # Render.com Infrastructure Blueprint (Free Web Service tier)
 └── README.md
 ```
 
@@ -155,25 +161,53 @@ helm/
 
 ---
 
-## 7. Infrastructure & Cloud Deployment (`infra/`)
+## 7. Cloud Deployment (Render.com + Vercel)
 
-1. Configure your GCP variables:
-   ```bash
-   cd infra
-   cp terraform.tfvars.example terraform.tfvars
-   ```
-2. Initialize and apply Terraform / OpenTofu:
-   ```bash
-   terraform init
-   terraform plan
-   terraform apply
-   ```
-3. Populate Secret Manager values for Neon Postgres and Gemini:
-   ```bash
-   echo -n "postgresql+asyncpg://user:pass@ep-host.neon.tech/helm?ssl=require" | \
-     gcloud secrets versions add helm-database-url --data-file=-
+Helm is configured to run at **100% zero cloud cost** by pairing **Render.com** (Backend Web Service) with **Vercel** (Frontend SPA) and **Neon** (Serverless Postgres).
 
-   echo -n "YOUR_GEMINI_API_KEY" | \
-     gcloud secrets versions add helm-gemini-api-key --data-file=-
+### 7.1 Backend Deployment on Render.com
+
+#### Option A: Using the Blueprint (`render.yaml`)
+1. In the [Render Dashboard](https://dashboard.render.com/), click **New +** > **Blueprint**.
+2. Connect your GitHub repository.
+3. Render automatically detects [`render.yaml`](file:///Users/martinabanes/Sites/ai-skill/helm/render.yaml) and provisions the `helm-backend` web service.
+4. Set the secret environment variables in the prompt:
+   - `DATABASE_URL`: `postgresql+asyncpg://...` (your Neon connection string)
+   - `GEMINI_API_KEY`: Your Google Gemini API key
+
+#### Option B: Manual Web Service Setup
+1. In Render, select **New +** > **Web Service**.
+2. Connect your repository and select your deployment branch (e.g. `main` or `prodDeploy`).
+3. Set the following fields:
+   - **Name**: `helm-backend`
+   - **Language / Runtime**: `Docker`
+   - **Region**: `Singapore (Southeast Asia)` (or region closest to your Neon database)
+   - **Instance Type**: `Free` (512 MB RAM, 0.1 CPU, sleeps on idle)
+   - **Docker Context**: `backend`
+   - **Dockerfile Path**: `backend/Dockerfile`
+4. Add the **Environment Variables**:
+   ```ini
+   APP_ENV=production
+   GEMINI_MODEL=gemini-3.8-flash
+   GEMINI_API_KEY=YOUR_GEMINI_API_KEY
+   DATABASE_URL=postgresql+asyncpg://user:pass@ep-xyz.region.aws.neon.tech/neondb?ssl=require
+   CORS_ORIGINS=http://localhost:4200,https://helm.vercel.app,https://*.vercel.app
    ```
-4. Configure Terraform outputs (`workload_identity_provider` and `deployer_service_account_email`) as GitHub Actions secrets for automated keyless CI/CD.
+5. Click **Create Web Service**. Your service URL will be available at:
+   `https://<your-service-name>.onrender.com`
+
+---
+
+### 7.2 Frontend Deployment on Vercel
+
+1. Update the production API URL in [`frontend/src/environments/environment.prod.ts`](file:///Users/martinabanes/Sites/ai-skill/helm/frontend/src/environments/environment.prod.ts):
+   ```typescript
+   export const environment = {
+     production: true,
+     apiBaseUrl: 'https://<your-service-name>.onrender.com/api/v1',
+   };
+   ```
+2. Import the repository into [Vercel](https://vercel.com/):
+   - **Framework Preset**: `Angular`
+   - **Root Directory**: `frontend`
+3. Click **Deploy**. Vercel will build the Angular SPA and host it on their global edge network.
