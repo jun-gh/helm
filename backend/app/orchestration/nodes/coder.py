@@ -86,6 +86,7 @@ async def coder_node(state: HelmGraphState) -> HelmGraphState:
     code_artifacts = list(state.get("code_artifacts", []))
     research_notes = state.get("research_notes", [])
     completed_workers = list(state.get("completed_workers", []))
+    errors = list(state.get("errors", []))
 
     # Invoke specialized MCP code inspector
     mcp_code_eval = await mcp_registry.invoke_tool(
@@ -106,6 +107,7 @@ async def coder_node(state: HelmGraphState) -> HelmGraphState:
                 model=settings.gemini_model,
                 google_api_key=settings.gemini_api_key,
                 temperature=0.2,
+                max_retries=1,
             )
             context = "\n".join(research_notes) if research_notes else "No prior research."
             messages = [
@@ -127,8 +129,17 @@ async def coder_node(state: HelmGraphState) -> HelmGraphState:
             response = await llm.ainvoke(messages)
             gemini_code = str(response.content)
         except Exception as exc:
-            error_notice = f"Gemini error ({exc.__class__.__name__}: {str(exc)[:90]})"
+            err_str = str(exc)
+            if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                error_notice = "Coder: 429 Quota Exceeded (Free-tier limit of 20 req/day reached)."
+            elif "503" in err_str or "UNAVAILABLE" in err_str:
+                error_notice = "Coder: 503 Service Spike (Google model cluster busy)."
+            else:
+                error_notice = f"Coder: {exc.__class__.__name__} ({err_str[:90]})"
+
             logger.warning("Gemini coder synthesis fallback: %s", exc)
+            if error_notice not in errors:
+                errors.append(error_notice)
 
     if not gemini_code:
         gemini_code = build_dynamic_code(objective)
@@ -145,7 +156,7 @@ async def coder_node(state: HelmGraphState) -> HelmGraphState:
 
     trace_detail = "Invoked mcp_code_inspector and synthesized runnable code scaffolding."
     if error_notice:
-        trace_detail += f" ({error_notice})"
+        trace_detail += f" [{error_notice}]"
 
     trace.append(
         TraceStep(
@@ -163,4 +174,5 @@ async def coder_node(state: HelmGraphState) -> HelmGraphState:
         "code_artifacts": code_artifacts,
         "completed_workers": completed_workers,
         "trace": trace,
+        "errors": errors,
     }

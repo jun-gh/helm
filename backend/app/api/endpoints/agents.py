@@ -35,6 +35,7 @@ class AgentRunResponse(BaseModel):
     research_notes: list[str] = Field(default_factory=list)
     code_artifacts: list[dict[str, Any]] = Field(default_factory=list)
     tool_results: list[dict[str, Any]]
+    errors: list[str] = Field(default_factory=list)
     state_backend: str
 
 
@@ -56,6 +57,7 @@ async def run_orchestration(
         "code_artifacts": [],
         "tool_results": [],
         "trace": [],
+        "errors": [],
         "final_response": "",
     }
 
@@ -83,6 +85,7 @@ async def run_orchestration(
         research_notes=final_state.get("research_notes", []),
         code_artifacts=final_state.get("code_artifacts", []),
         tool_results=final_state.get("tool_results", []),
+        errors=final_state.get("errors", []),
         state_backend=state_store.backend_mode,
     )
 

@@ -51,6 +51,7 @@ async def researcher_node(state: HelmGraphState) -> HelmGraphState:
     tool_results = list(state.get("tool_results", []))
     research_notes = list(state.get("research_notes", []))
     completed_workers = list(state.get("completed_workers", []))
+    errors = list(state.get("errors", []))
 
     # Invoke specialized MCP research tool
     mcp_finding = await mcp_registry.invoke_tool(
@@ -71,6 +72,7 @@ async def researcher_node(state: HelmGraphState) -> HelmGraphState:
                 model=settings.gemini_model,
                 google_api_key=settings.gemini_api_key,
                 temperature=0.3,
+                max_retries=1,
             )
             messages = [
                 SystemMessage(
@@ -86,8 +88,17 @@ async def researcher_node(state: HelmGraphState) -> HelmGraphState:
             response = await llm.ainvoke(messages)
             gemini_research = str(response.content)
         except Exception as exc:
-            error_notice = f"Gemini error ({exc.__class__.__name__}: {str(exc)[:90]})"
+            err_str = str(exc)
+            if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                error_notice = "Researcher: 429 Quota Exceeded (Free-tier limit of 20 req/day reached)."
+            elif "503" in err_str or "UNAVAILABLE" in err_str:
+                error_notice = "Researcher: 503 Service Spike (Google model cluster busy)."
+            else:
+                error_notice = f"Researcher: {exc.__class__.__name__} ({err_str[:90]})"
+
             logger.warning("Gemini researcher synthesis fallback: %s", exc)
+            if error_notice not in errors:
+                errors.append(error_notice)
 
     if not gemini_research:
         gemini_research = build_dynamic_research(objective)
@@ -100,7 +111,7 @@ async def researcher_node(state: HelmGraphState) -> HelmGraphState:
 
     trace_detail = "Invoked mcp_research_query and synthesized technical architectural notes."
     if error_notice:
-        trace_detail += f" ({error_notice})"
+        trace_detail += f" [{error_notice}]"
 
     trace.append(
         TraceStep(
@@ -118,4 +129,5 @@ async def researcher_node(state: HelmGraphState) -> HelmGraphState:
         "research_notes": research_notes,
         "completed_workers": completed_workers,
         "trace": trace,
+        "errors": errors,
     }

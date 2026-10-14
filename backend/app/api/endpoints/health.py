@@ -18,6 +18,7 @@ class HealthResponse(BaseModel):
     database_mode: str
     state_store_mode: str
     gemini_configured: bool
+    gemini_model: str
     mcp_enabled: bool
 
 
@@ -32,5 +33,6 @@ async def get_health() -> HealthResponse:
         database_mode="neon-postgres" if settings.is_postgres else "sqlite-local",
         state_store_mode=state_store.backend_mode,
         gemini_configured=bool(settings.gemini_api_key),
+        gemini_model=settings.gemini_model,
         mcp_enabled=settings.mcp_enabled,
     )

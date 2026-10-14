@@ -25,4 +25,5 @@ class HelmGraphState(TypedDict, total=False):
     code_artifacts: list[dict[str, Any]]
     tool_results: list[dict[str, Any]]
     trace: list[TraceStep]
+    errors: list[str]
     final_response: str

@@ -10,6 +10,7 @@ export interface HealthStatus {
   database_mode: string;
   state_store_mode: string;
   gemini_configured: boolean;
+  gemini_model?: string;
   mcp_enabled: boolean;
 }
 
@@ -42,6 +43,7 @@ export interface AgentRunResponse {
   research_notes: string[];
   code_artifacts: CodeArtifact[];
   tool_results: Record<string, unknown>[];
+  errors?: string[];
   state_backend: string;
 }
 

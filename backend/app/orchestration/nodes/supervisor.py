@@ -1,14 +1,28 @@
 """Supervisor Node: Steers execution between specialized workers and synthesizes reports."""
 
 from datetime import UTC, datetime
+import ast
 import json
 import logging
+import re
 from typing import Literal
 
 from app.core.config import get_settings
 from app.orchestration.state import HelmGraphState, TraceStep
 
 logger = logging.getLogger(__name__)
+
+
+def format_gemini_error(exc: Exception, context: str) -> str:
+    """Format readable error message for quotas, spikes, and authentication failures."""
+    err_str = str(exc)
+    if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+        return f"{context}: 429 Quota Exceeded (Free-tier limit of 20 req/day reached on gemini-3.8-flash)."
+    if "503" in err_str or "UNAVAILABLE" in err_str:
+        return f"{context}: 503 Service Spike (Google model cluster is experiencing temporary high demand)."
+    if "401" in err_str or "UNAUTHENTICATED" in err_str:
+        return f"{context}: 401 Authentication Error (Check GEMINI_API_KEY in backend/.env)."
+    return f"{context}: {exc.__class__.__name__} ({err_str[:120]})"
 
 
 def decide_next_agent_fallback(
@@ -27,13 +41,63 @@ def decide_next_agent_fallback(
     return "FINISH"
 
 
+def extract_next_agent_decision(raw_text: str) -> dict:
+    """Extract next_agent decision supporting strict JSON, Python single-quotes, and markdown."""
+    text = raw_text.strip()
+
+    # 1. Strip markdown fences if present
+    if "```" in text:
+        match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", text)
+        if match:
+            text = match.group(1).strip()
+
+    # 2. Extract balanced curly braces block
+    brace_match = re.search(r"\{[\s\S]*\}", text)
+    json_candidate = brace_match.group(0) if brace_match else text
+
+    # 3. Try standard JSON
+    try:
+        data = json.loads(json_candidate)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+
+    # 4. Try Python literal eval (for single-quoted dicts)
+    try:
+        data = ast.literal_eval(json_candidate)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+
+    # 5. Regex search for next_agent key
+    agent_match = re.search(
+        r"['\"]?next_agent['\"]?\s*[:=]\s*['\"]?(researcher|coder|FINISH)['\"]?",
+        text,
+        re.IGNORECASE,
+    )
+    if agent_match:
+        found = agent_match.group(1).lower()
+        mapping = {"researcher": "researcher", "coder": "coder", "finish": "FINISH"}
+        if found in mapping:
+            return {"next_agent": mapping[found]}
+
+    # 6. Fallback scan for standalone agent tokens
+    for token, mapped in [("researcher", "researcher"), ("coder", "coder"), ("finish", "FINISH")]:
+        if re.search(rf"\b{token}\b", text, re.IGNORECASE):
+            return {"next_agent": mapped}
+
+    return {}
+
+
 async def decide_next_agent_with_gemini(
     objective: str,
     completed_workers: list[str],
     research_notes: list[str],
     code_artifacts: list[dict],
 ) -> tuple[Literal["researcher", "coder", "FINISH"], str]:
-    """Use Google Gemini to dynamically select the best worker for the objective."""
+    """Use Google Gemini to dynamically select the best worker for the objective with fail-fast retries."""
     settings = get_settings()
     if not settings.gemini_api_key:
         return decide_next_agent_fallback(objective, completed_workers), ""
@@ -46,6 +110,7 @@ async def decide_next_agent_with_gemini(
             model=settings.gemini_model,
             google_api_key=settings.gemini_api_key,
             temperature=0.0,
+            max_retries=1,
         )
         messages = [
             SystemMessage(
@@ -69,19 +134,14 @@ async def decide_next_agent_with_gemini(
             ),
         ]
         response = await llm.ainvoke(messages)
-        text = str(response.content).strip()
-        if text.startswith("```"):
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
-        data = json.loads(text.strip())
+        data = extract_next_agent_decision(str(response.content))
         choice = data.get("next_agent", "FINISH")
         if choice in ("researcher", "coder", "FINISH"):
             if choice in completed_workers:
                 return ("coder" if "coder" not in completed_workers else "FINISH"), ""
             return choice, ""
     except Exception as exc:
-        err_msg = f"Gemini router ({exc.__class__.__name__}: {str(exc)[:90]})"
+        err_msg = format_gemini_error(exc, "Supervisor Router")
         logger.warning("Gemini supervisor routing fallback triggered: %s", exc)
         return decide_next_agent_fallback(objective, completed_workers), err_msg
 
@@ -94,6 +154,7 @@ async def supervisor_node(state: HelmGraphState) -> HelmGraphState:
     iteration = state.get("iteration", 0)
     max_iterations = state.get("max_iterations", 3)
     trace = list(state.get("trace", []))
+    errors = list(state.get("errors", []))
     objective = state.get("objective", "")
     completed_workers = list(state.get("completed_workers", []))
     research_notes = list(state.get("research_notes", []))
@@ -104,6 +165,9 @@ async def supervisor_node(state: HelmGraphState) -> HelmGraphState:
         next_worker, router_err = await decide_next_agent_with_gemini(
             objective, completed_workers, research_notes, code_artifacts
         )
+        if router_err and router_err not in errors:
+            errors.append(router_err)
+
         if next_worker in ("researcher", "coder"):
             detail = f"Dispatched specialized {next_worker} worker (pass {iteration + 1}/{max_iterations})."
             if router_err:
@@ -120,6 +184,7 @@ async def supervisor_node(state: HelmGraphState) -> HelmGraphState:
                 **state,
                 "next_agent": next_worker,
                 "trace": trace,
+                "errors": errors,
             }
 
     # All worker passes complete -> synthesize final mission report
@@ -134,6 +199,7 @@ async def supervisor_node(state: HelmGraphState) -> HelmGraphState:
                 model=settings.gemini_model,
                 google_api_key=settings.gemini_api_key,
                 temperature=0.2,
+                max_retries=1,
             )
             worker_context = []
             if research_notes:
@@ -160,8 +226,10 @@ async def supervisor_node(state: HelmGraphState) -> HelmGraphState:
             ai_msg = await llm.ainvoke(messages)
             final_response = str(ai_msg.content)
         except Exception as exc:
-            synthesis_err = f"Gemini synthesizer ({exc.__class__.__name__}: {str(exc)[:90]})"
+            synthesis_err = format_gemini_error(exc, "Supervisor Synthesizer")
             logger.warning("Gemini synthesis fallback triggered: %s", exc)
+            if synthesis_err not in errors:
+                errors.append(synthesis_err)
 
     if not final_response:
         res_summary = "\n".join(f"- {n}" for n in research_notes) if research_notes else "- Standard cluster telemetry verified."
@@ -192,5 +260,6 @@ async def supervisor_node(state: HelmGraphState) -> HelmGraphState:
         **state,
         "next_agent": "FINISH",
         "trace": trace,
+        "errors": errors,
         "final_response": final_response,
     }
