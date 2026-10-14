@@ -87,16 +87,6 @@ import {
             </button>
           </div>
 
-          <!-- Network/Server Error Alert Banner -->
-          @if (httpErrorMessage()) {
-            <div class="rounded-xl border border-[#FF5722] bg-[#FF5722]/10 p-4 space-y-1">
-              <div class="flex items-center gap-2 text-[#FF5722] font-bold text-xs uppercase tracking-wider">
-                <span>⚠️ Connection / Server Error</span>
-              </div>
-              <p class="text-xs text-[#303841] font-mono whitespace-pre-wrap">{{ httpErrorMessage() }}</p>
-            </div>
-          }
-
           <form (ngSubmit)="dispatchObjective()" class="space-y-4">
             <div>
               <label for="objective" class="block text-xs font-bold text-[#303841] mb-2 uppercase tracking-wide">
@@ -121,11 +111,24 @@ import {
               </button>
               @if (isRunning()) {
                 <span class="text-xs text-[#76ABAE] animate-pulse font-mono font-semibold">
-                  Supervisor evaluating routes & executing workers...
+                  Supervisor evaluating routes & executing workers (fail-fast active)...
                 </span>
               }
             </div>
           </form>
+
+          <!-- Network/Server Error Alert Banner -->
+          @if (httpErrorMessage()) {
+            <div class="mt-4 rounded-xl border border-[#FF5722] bg-[#FF5722]/10 p-4 space-y-2">
+              <div class="flex items-center gap-2 text-[#FF5722] font-bold text-xs uppercase tracking-wider">
+                <span>⚠️ Orchestration Request Notice</span>
+              </div>
+              <p class="text-xs text-[#303841] font-mono whitespace-pre-wrap">{{ httpErrorMessage() }}</p>
+              <p class="text-[0.7rem] text-[#303841]/75 font-medium">
+                Tip: Google Gemini free-tier clusters occasionally experience temporary traffic spikes. Helm will automatically fail-fast to local intelligence, or you can retry in a moment.
+              </p>
+            </div>
+          }
 
           @if (runResult(); as result) {
             <div class="space-y-5 pt-4 border-t border-[#76ABAE]/30">
@@ -304,7 +307,10 @@ export class DashboardComponent implements OnInit {
         this.isRunning.set(false);
       },
       error: (err) => {
-        const detail = err.error?.detail || err.message || 'Server error occurred during agent orchestration.';
+        let detail = err.error?.detail || err.message || 'Server error occurred during agent orchestration.';
+        if (err.name === 'TimeoutError' || err.message?.includes('Timeout')) {
+          detail = 'Request timed out after 35s. The upstream AI model cluster is experiencing heavy demand. Please retry in a moment.';
+        }
         this.httpErrorMessage.set(detail);
         this.isRunning.set(false);
       },

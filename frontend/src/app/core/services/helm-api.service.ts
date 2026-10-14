@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable } from 'rxjs';
+import { Observable, timeout } from 'rxjs';
 import { environment } from '../../../environments/environment';
 
 export interface HealthStatus {
@@ -61,9 +61,11 @@ export class HelmApiService {
   }
 
   runAgent(objective: string, maxIterations = 3): Observable<AgentRunResponse> {
-    return this.http.post<AgentRunResponse>(`${this.baseUrl}/agents/run`, {
-      objective,
-      max_iterations: maxIterations,
-    });
+    return this.http
+      .post<AgentRunResponse>(`${this.baseUrl}/agents/run`, {
+        objective,
+        max_iterations: maxIterations,
+      })
+      .pipe(timeout({ each: 35000 }));
   }
 }
