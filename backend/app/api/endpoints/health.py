@@ -4,7 +4,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from app.core.config import get_settings
-from app.memory.firestore_store import state_store
+from app.memory.sql_store import state_store
 
 router = APIRouter(tags=["health"])
 

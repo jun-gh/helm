@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import OrchestrationRunLog
 from app.db.session import get_db_session
-from app.memory.firestore_store import state_store
+from app.memory.sql_store import state_store
 from app.orchestration.graph import helm_graph
 from app.orchestration.state import HelmGraphState, TraceStep
 
@@ -63,7 +63,7 @@ async def run_orchestration(
 
     final_state: HelmGraphState = await helm_graph.ainvoke(initial_state)
 
-    # Persist state checkpoint to Firestore (or local memory fallback)
+    # Persist state checkpoint to PostgreSQL / SQLite (or local memory fallback)
     await state_store.save_checkpoint(thread_id, dict(final_state))
 
     # Persist audit log to SQLite (local) or Neon Serverless Postgres (prod)
@@ -92,7 +92,7 @@ async def run_orchestration(
 
 @router.get("/checkpoints/{thread_id}")
 async def get_thread_checkpoint(thread_id: str) -> dict[str, Any]:
-    """Retrieve a saved thread checkpoint from Firestore / memory store."""
+    """Retrieve a saved thread checkpoint from database / memory store."""
     checkpoint = await state_store.load_checkpoint(thread_id)
     if checkpoint is None:
         return {"thread_id": thread_id, "found": False, "state": None}
