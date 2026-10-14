@@ -65,3 +65,24 @@ async def test_run_multi_worker_orchestration() -> None:
     assert "supervisor" in nodes_in_trace
     assert "researcher" in nodes_in_trace or "coder" in nodes_in_trace
     assert len(payload["trace"]) >= 3
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_persistence() -> None:
+    """Verify /api/v1/agents/checkpoints/{thread_id} retrieves saved state."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        run_res = await client.post(
+            "/api/v1/agents/run",
+            json={"objective": "Test checkpoint persistence", "max_iterations": 1},
+        )
+        assert run_res.status_code == 200
+        thread_id = run_res.json()["thread_id"]
+
+        cp_res = await client.get(f"/api/v1/agents/checkpoints/{thread_id}")
+        assert cp_res.status_code == 200
+        cp_data = cp_res.json()
+        assert cp_data["found"] is True
+        assert cp_data["thread_id"] == thread_id
+        assert "state" in cp_data
+
