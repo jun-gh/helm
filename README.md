@@ -10,9 +10,9 @@
 | :--- | :--- | :--- |
 | **Backend Runtime** | Python 3.11+, FastAPI, Pydantic v2, Uvicorn (`uv`) | Stateless async container |
 | **Agent Orchestration** | LangGraph (Supervisor-Worker Multi-Node StateGraph) | Deterministic routing + LLM steering |
-| **AI / LLM Layer** | Google Gemini API (`google-genai`, `gemini-3.8-flash`) | Free/Pay-as-you-go tier with fail-fast retries |
+| **AI / LLM Layer** | Google Gemini API (`google-genai`, dynamic `GEMINI_MODEL`) | Free/Pay-as-you-go tier with fail-fast retries |
 | **Tool Layer** | Model Context Protocol (`mcp`) | Extensible MCP tool client registry |
-| **State & Memory** | In-Memory Session Cache / Checkpoint store | Scale-to-zero memory fallback + optional Firestore |
+| **State & Memory** | PostgreSQL (Neon) / SQLite Checkpoint Store (`SQLStateStore`) | Persistent thread checkpoints across scale-to-zero sleep |
 | **Relational DB** | SQLite (Local Dev) / Neon Serverless Postgres (Prod) | Scale-to-zero compute (`NullPool`) |
 | **Frontend** | Angular 19+ Standalone SPA + Tailwind CSS | Hosted on Vercel (Hobby free tier) |
 | **Cloud Compute** | Render.com Web Service (Docker runtime) | Free tier (750 hrs/month, scale-to-zero idle) |
@@ -100,7 +100,7 @@ helm/
 │   │   ├── api/endpoints/         # Health & Agent dispatch endpoints
 │   │   ├── core/                  # Settings, database session, MCP client registry
 │   │   ├── db/                    # SQLAlchemy models & serverless session manager
-│   │   ├── memory/                # Session memory store with scale-to-zero fallback
+│   │   ├── memory/                # SQLStateStore (Postgres / SQLite checkpoints + memory fallback)
 │   │   └── orchestration/         # LangGraph graph definition, state, & specialized worker nodes
 │   │       ├── graph.py           # StateGraph builder and routing conditions
 │   │       ├── state.py           # Typed AgentState with trace history & code artifacts
