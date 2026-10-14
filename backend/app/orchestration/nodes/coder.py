@@ -1,7 +1,7 @@
 """Coder Worker Node: Implements architecture, code snippets, and design patterns."""
 
-from datetime import UTC, datetime
 import logging
+from datetime import UTC, datetime
 
 from app.core.config import get_settings
 from app.mcp_layer.client import mcp_registry
@@ -23,15 +23,17 @@ def build_dynamic_code(objective: str) -> str:
             "security = HTTPBearer()\n"
             "JWT_SECRET = 'your-secret-key'\n"
             "ALGORITHM = 'HS256'\n\n"
-            "async def verify_jwt_token(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:\n"
+            "async def verify_jwt_token(\n"
+            "    credentials: HTTPAuthorizationCredentials = Depends(security),\n"
+            ") -> dict:\n"
             "    token = credentials.credentials\n"
             "    try:\n"
             "        payload = jwt.decode(token, JWT_SECRET, algorithms=[ALGORITHM])\n"
             "        return payload\n"
             "    except jwt.ExpiredSignatureError:\n"
-            "        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Token expired')\n"
+            "        raise HTTPException(status_code=401, detail='Expired')\n"
             "    except jwt.InvalidTokenError:\n"
-            "        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Invalid token')\n"
+            "        raise HTTPException(status_code=401, detail='Invalid')\n"
             "```"
         )
     if "cloud run" in obj or "session" in obj or "database" in obj or "postgres" in obj:
@@ -39,12 +41,16 @@ def build_dynamic_code(objective: str) -> str:
             "```python\n"
             "# Scale-to-Zero Async Database Session Engine (SQLAlchemy + NullPool)\n"
             "from collections.abc import AsyncGenerator\n"
-            "from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine\n"
+            "from sqlalchemy.ext.asyncio import (\n"
+            "    AsyncSession, async_sessionmaker, create_async_engine\n"
+            ")\n"
             "from sqlalchemy.pool import NullPool\n\n"
             "DATABASE_URL = 'postgresql+asyncpg://user:pass@ep-host.neon.tech/helm?ssl=require'\n\n"
             "# NullPool guarantees zero idle connections when Cloud Run scales to zero\n"
             "engine = create_async_engine(DATABASE_URL, poolclass=NullPool, echo=False)\n"
-            "AsyncSessionLocal = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)\n\n"
+            "AsyncSessionLocal = async_sessionmaker(\n"
+            "    bind=engine, class_=AsyncSession, expire_on_commit=False\n"
+            ")\n\n"
             "async def get_db_session() -> AsyncGenerator[AsyncSession, None]:\n"
             "    async with AsyncSessionLocal() as session:\n"
             "        yield session\n"
@@ -59,7 +65,7 @@ def build_dynamic_code(objective: str) -> str:
             "class MCPTransportConfig(BaseModel):\n"
             "    server_name: str\n"
             "    transport_type: Literal['stdio', 'sse']\n"
-            "    command_or_url: str = Field(..., description='Shell command for stdio, or HTTP endpoint for SSE')\n"
+            "    command_or_url: str = Field(..., description='Command or URL')\n"
             "    timeout_seconds: float = 30.0\n"
             "    headers: dict[str, str] = Field(default_factory=dict)\n"
             "```"
@@ -114,8 +120,8 @@ async def coder_node(state: HelmGraphState) -> HelmGraphState:
                 SystemMessage(
                     content=(
                         "You are Helm's Senior Software Engineer and Architect. "
-                        "Using the objective and research context, draft a concise, production-ready "
-                        "Python or TypeScript code snippet or structural schema that solves the objective."
+                        "Using the objective and research context, draft a concise, "
+                        "production-ready Python or TypeScript code snippet or schema."
                     )
                 ),
                 HumanMessage(

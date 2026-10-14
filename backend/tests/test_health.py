@@ -1,7 +1,7 @@
 """Integration tests for health, MCP tools, and Multi-Worker LangGraph orchestration."""
 
-from httpx import ASGITransport, AsyncClient
 import pytest
+from httpx import ASGITransport, AsyncClient
 
 from app.db.models import Base
 from app.db.session import engine
@@ -51,7 +51,9 @@ async def test_run_multi_worker_orchestration() -> None:
         response = await client.post(
             "/api/v1/agents/run",
             json={
-                "objective": "Research serverless architecture and code a token verification module",
+                "objective": (
+                    "Research serverless architecture and code a token verification module"
+                ),
                 "max_iterations": 2,
             },
         )

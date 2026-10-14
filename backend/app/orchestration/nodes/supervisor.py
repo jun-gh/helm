@@ -1,10 +1,10 @@
 """Supervisor Node: Steers execution between specialized workers and synthesizes reports."""
 
-from datetime import UTC, datetime
 import ast
 import json
 import logging
 import re
+from datetime import UTC, datetime
 from typing import Literal
 
 from app.core.config import get_settings
@@ -17,12 +17,12 @@ def format_gemini_error(exc: Exception, context: str) -> str:
     """Format readable error message for quotas, spikes, and authentication failures."""
     err_str = str(exc)
     if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
-        return f"{context}: 429 Quota Exceeded (Free-tier limit of 20 req/day reached on gemini-3.8-flash)."
+        return f"{context}: 429 Quota Exceeded (Free-tier limit reached)."
     if "503" in err_str or "UNAVAILABLE" in err_str:
-        return f"{context}: 503 Service Spike (Google model cluster is experiencing temporary high demand)."
+        return f"{context}: 503 Service Spike (Cluster high demand)."
     if "401" in err_str or "UNAUTHENTICATED" in err_str:
-        return f"{context}: 401 Authentication Error (Check GEMINI_API_KEY in backend/.env)."
-    return f"{context}: {exc.__class__.__name__} ({err_str[:120]})"
+        return f"{context}: 401 Authentication Error (Check GEMINI_API_KEY)."
+    return f"{context}: {exc.__class__.__name__} ({err_str[:90]})"
 
 
 def decide_next_agent_fallback(
@@ -31,8 +31,16 @@ def decide_next_agent_fallback(
 ) -> Literal["researcher", "coder", "FINISH"]:
     """Deterministic routing fallback based on keywords and uncompleted specialists."""
     obj_lower = objective.lower()
-    needs_research = any(w in obj_lower for w in ["research", "audit", "investigate", "compare", "plan", "analyze"])
-    needs_code = any(w in obj_lower for w in ["code", "implement", "build", "scaffold", "create", "write", "develop", "session"])
+    needs_research = any(
+        w in obj_lower
+        for w in ["research", "audit", "investigate", "compare", "plan", "analyze"]
+    )
+    needs_code = any(
+        w in obj_lower
+        for w in [
+            "code", "implement", "build", "scaffold", "create", "write", "develop", "session"
+        ]
+    )
 
     if "researcher" not in completed_workers and (needs_research or not needs_code):
         return "researcher"
@@ -97,7 +105,7 @@ async def decide_next_agent_with_gemini(
     research_notes: list[str],
     code_artifacts: list[dict],
 ) -> tuple[Literal["researcher", "coder", "FINISH"], str]:
-    """Use Google Gemini to dynamically select the best worker for the objective with fail-fast retries."""
+    """Use Google Gemini to select the best worker for the objective with fail-fast retries."""
     settings = get_settings()
     if not settings.gemini_api_key:
         return decide_next_agent_fallback(objective, completed_workers), ""
@@ -116,12 +124,13 @@ async def decide_next_agent_with_gemini(
             SystemMessage(
                 content=(
                     "You are Helm's Supervisor Router. You must pick the next worker to execute "
-                    "or conclude the run. Available options are 'researcher', 'coder', or 'FINISH'.\n"
+                    "or conclude the run. Options: 'researcher', 'coder', or 'FINISH'.\n"
                     "Guidelines:\n"
-                    "- Choose 'researcher' if research, comparison, or investigation is needed and 'researcher' is NOT in completed_workers.\n"
-                    "- Choose 'coder' if architecture scaffolding, code generation, or implementation is needed and 'coder' is NOT in completed_workers.\n"
-                    "- Choose 'FINISH' if both required specialists have run or no further worker execution is needed.\n"
-                    "Respond with ONLY a JSON object: {\"next_agent\": \"researcher\" | \"coder\" | \"FINISH\", \"reason\": \"...\"}"
+                    "- 'researcher': if investigation/comparison needed and not in completed.\n"
+                    "- 'coder': if architecture/code needed and not in completed.\n"
+                    "- 'FINISH': if required specialists have run or no further work needed.\n"
+                    'Respond with ONLY JSON: {"next_agent": "researcher"|"coder"|"FINISH", '
+                    '"reason": "..."}'
                 )
             ),
             HumanMessage(
@@ -169,7 +178,10 @@ async def supervisor_node(state: HelmGraphState) -> HelmGraphState:
             errors.append(router_err)
 
         if next_worker in ("researcher", "coder"):
-            detail = f"Dispatched specialized {next_worker} worker (pass {iteration + 1}/{max_iterations})."
+            detail = (
+                f"Dispatched specialized {next_worker} worker "
+                f"(pass {iteration + 1}/{max_iterations})."
+            )
             if router_err:
                 detail += f" [{router_err}]"
             trace.append(
@@ -206,13 +218,15 @@ async def supervisor_node(state: HelmGraphState) -> HelmGraphState:
                 worker_context.append("### Research Findings:\n" + "\n".join(research_notes))
             if code_artifacts:
                 for art in code_artifacts:
-                    worker_context.append(f"### Code Scaffold ({art.get('inspector_verdict')}):\n{art.get('snippet')}")
+                    verdict = art.get("inspector_verdict")
+                    snippet = art.get("snippet")
+                    worker_context.append(f"### Code Scaffold ({verdict}):\n{snippet}")
 
             messages = [
                 SystemMessage(
                     content=(
-                        "You are Helm, the Master Agent Orchestrator. Synthesize a unified, executive "
-                        "mission debrief combining the Researcher's insights and Coder's implementation."
+                        "You are Helm, the Master Agent Orchestrator. Synthesize a unified, "
+                        "executive mission debrief combining research insights and code."
                     )
                 ),
                 HumanMessage(
@@ -232,7 +246,11 @@ async def supervisor_node(state: HelmGraphState) -> HelmGraphState:
                 errors.append(synthesis_err)
 
     if not final_response:
-        res_summary = "\n".join(f"- {n}" for n in research_notes) if research_notes else "- Standard cluster telemetry verified."
+        res_summary = (
+            "\n".join(f"- {n}" for n in research_notes)
+            if research_notes
+            else "- Standard cluster telemetry verified."
+        )
         code_summary = code_artifacts[0]["snippet"] if code_artifacts else "N/A"
         final_response = (
             f"Helm Supervisor completed multi-agent orchestration for: '{objective}'.\n\n"
@@ -241,7 +259,7 @@ async def supervisor_node(state: HelmGraphState) -> HelmGraphState:
             f"Generated Code / Architecture:\n{code_summary}"
         )
         if synthesis_err:
-            final_response += f"\n\n*(Notice: {synthesis_err}. Switched to local structured synthesis.)*"
+            final_response += f"\n\n*(Notice: {synthesis_err}. Local fallback used.)*"
 
     finish_detail = f"Unified reports from {completed_workers} into final mission synthesis."
     if synthesis_err:

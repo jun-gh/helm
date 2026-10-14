@@ -1,7 +1,7 @@
 """Researcher Worker Node: Investigates context and gathers technical findings."""
 
-from datetime import UTC, datetime
 import logging
+from datetime import UTC, datetime
 
 from app.core.config import get_settings
 from app.mcp_layer.client import mcp_registry
@@ -16,23 +16,23 @@ def build_dynamic_research(objective: str) -> str:
     if "jwt" in obj or "auth" in obj or "token" in obj:
         return (
             f"Researcher evaluated '{objective}':\n"
-            "- Architecture Recommendation: Use RS256 asymmetric keys (or HS256 for symmetric) with 15-minute token TTL.\n"
-            "- Security Baseline: Validate audience ('aud'), issuer ('iss'), and clock skew tolerance.\n"
-            "- Integration Pattern: Pair FastAPI OAuth2PasswordBearer dependency with PyJWT verification middleware."
+            "- Architecture Recommendation: Use RS256 asymmetric keys (or HS256) with 15m TTL.\n"
+            "- Security Baseline: Validate audience ('aud'), issuer ('iss'), and clock skew.\n"
+            "- Integration Pattern: Pair FastAPI OAuth2PasswordBearer with PyJWT middleware."
         )
     if "cloud run" in obj or "session" in obj or "database" in obj or "postgres" in obj:
         return (
             f"Researcher evaluated '{objective}':\n"
-            "- Architecture Recommendation: Configure SQLAlchemy with NullPool to prevent holding idle DB connections.\n"
-            "- Cloud Run Concurrency: Set max concurrency to 80 and startup CPU boost for instant scale-from-zero response.\n"
-            "- Cost Guardrail: Neon serverless compute will suspend after 5 minutes of inactivity when NullPool is active."
+            "- Architecture: Configure SQLAlchemy with NullPool to avoid idle connections.\n"
+            "- Cloud Run Concurrency: Set concurrency to 80 and CPU boost for fast cold start.\n"
+            "- Cost Guardrail: Neon serverless compute will suspend after 5m of inactivity."
         )
     if "stdio" in obj or "sse" in obj or "transport" in obj:
         return (
             f"Researcher evaluated '{objective}':\n"
-            "- MCP Stdio Transport: Ideal for local child-process isolation, zero network exposure, and sub-millisecond IPC.\n"
-            "- MCP SSE Transport: Ideal for cloud microservices, remote containerized tools, and long-lived streaming connections.\n"
-            "- Recommendation: Use Stdio for internal diagnostic tools, and SSE for external cloud tools."
+            "- MCP Stdio Transport: Ideal for local child-process isolation and sub-ms IPC.\n"
+            "- MCP SSE Transport: Ideal for cloud microservices and remote containerized tools.\n"
+            "- Recommendation: Use Stdio for internal diagnostic tools, and SSE for cloud tools."
         )
     return (
         f"Researcher evaluated '{objective}':\n"
@@ -77,8 +77,8 @@ async def researcher_node(state: HelmGraphState) -> HelmGraphState:
             messages = [
                 SystemMessage(
                     content=(
-                        "You are Helm's Senior Research Specialist. Given the mission objective and "
-                        "MCP findings, provide 3 crisp, high-impact technical findings or architectural trade-offs."
+                        "You are Helm's Senior Research Specialist. Given the objective "
+                        "and MCP findings, provide 3 crisp, high-impact technical findings."
                     )
                 ),
                 HumanMessage(
@@ -90,7 +90,7 @@ async def researcher_node(state: HelmGraphState) -> HelmGraphState:
         except Exception as exc:
             err_str = str(exc)
             if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
-                error_notice = "Researcher: 429 Quota Exceeded (Free-tier limit of 20 req/day reached)."
+                error_notice = "Researcher: 429 Quota Exceeded (Free-tier limit reached)."
             elif "503" in err_str or "UNAVAILABLE" in err_str:
                 error_notice = "Researcher: 503 Service Spike (Google model cluster busy)."
             else:
@@ -103,7 +103,7 @@ async def researcher_node(state: HelmGraphState) -> HelmGraphState:
     if not gemini_research:
         gemini_research = build_dynamic_research(objective)
         if error_notice:
-            gemini_research += f"\n\n*(Notice: {error_notice}. Switched to domain knowledge fallback.)*"
+            gemini_research += f"\n\n*(Notice: {error_notice}. Switched to fallback.)*"
 
     research_notes.append(gemini_research)
     if "researcher" not in completed_workers:

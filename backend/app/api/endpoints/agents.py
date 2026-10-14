@@ -1,6 +1,6 @@
 """Agent orchestration endpoints for steering LangGraph workflows."""
 
-from typing import Any
+from typing import Annotated, Any
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends
@@ -42,7 +42,7 @@ class AgentRunResponse(BaseModel):
 @router.post("/run", response_model=AgentRunResponse)
 async def run_orchestration(
     payload: AgentRunRequest,
-    db: AsyncSession = Depends(get_db_session),
+    db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> AgentRunResponse:
     """Execute the Helm LangGraph Multi-Worker workflow and persist state."""
     thread_id = payload.thread_id or f"helm-{uuid4().hex[:10]}"
