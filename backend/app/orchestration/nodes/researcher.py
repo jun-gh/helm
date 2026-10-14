@@ -20,11 +20,12 @@ def build_dynamic_research(objective: str) -> str:
             "- Security Baseline: Validate audience ('aud'), issuer ('iss'), and clock skew.\n"
             "- Integration Pattern: Pair FastAPI OAuth2PasswordBearer with PyJWT middleware."
         )
-    if "cloud run" in obj or "session" in obj or "database" in obj or "postgres" in obj:
+    db_keys = ["render", "serverless", "cloud run", "session", "database", "postgres"]
+    if any(k in obj for k in db_keys):
         return (
             f"Researcher evaluated '{objective}':\n"
             "- Architecture: Configure SQLAlchemy with NullPool to avoid idle connections.\n"
-            "- Cloud Run Concurrency: Set concurrency to 80 and CPU boost for fast cold start.\n"
+            "- Serverless Concurrency: Configure async worker pool for instant cold-start.\n"
             "- Cost Guardrail: Neon serverless compute will suspend after 5m of inactivity."
         )
     if "stdio" in obj or "sse" in obj or "transport" in obj:
@@ -37,7 +38,7 @@ def build_dynamic_research(objective: str) -> str:
     return (
         f"Researcher evaluated '{objective}':\n"
         f"- Scoped primary technical constraints and state requirements for '{objective}'.\n"
-        "- Validated zero-cost Firestore checkpoint free tier limits (50k reads/day).\n"
+        "- Validated zero-cost serverless state and checkpoint limits.\n"
         "- Outlined worker execution sequence and verified MCP tool bindings."
     )
 

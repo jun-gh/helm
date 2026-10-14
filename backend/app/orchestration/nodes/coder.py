@@ -36,7 +36,8 @@ def build_dynamic_code(objective: str) -> str:
             "        raise HTTPException(status_code=401, detail='Invalid')\n"
             "```"
         )
-    if "cloud run" in obj or "session" in obj or "database" in obj or "postgres" in obj:
+    db_keywords = ["render", "serverless", "cloud run", "session", "database", "postgres"]
+    if any(k in obj for k in db_keywords):
         return (
             "```python\n"
             "# Scale-to-Zero Async Database Session Engine (SQLAlchemy + NullPool)\n"
@@ -46,7 +47,7 @@ def build_dynamic_code(objective: str) -> str:
             ")\n"
             "from sqlalchemy.pool import NullPool\n\n"
             "DATABASE_URL = 'postgresql+asyncpg://user:pass@ep-host.neon.tech/helm?ssl=require'\n\n"
-            "# NullPool guarantees zero idle connections when Cloud Run scales to zero\n"
+            "# NullPool guarantees zero idle connections when serverless compute scales to zero\n"
             "engine = create_async_engine(DATABASE_URL, poolclass=NullPool, echo=False)\n"
             "AsyncSessionLocal = async_sessionmaker(\n"
             "    bind=engine, class_=AsyncSession, expire_on_commit=False\n"

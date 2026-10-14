@@ -31,7 +31,7 @@ import {
         <div class="rounded-xl border border-[#76ABAE]/35 bg-white p-4 shadow-xs">
           <span class="text-xs uppercase tracking-wider text-[#76ABAE] font-bold">State & Memory</span>
           <div class="mt-2 text-base font-bold text-[#303841]">
-            {{ health()?.state_store_mode || 'firestore' }}
+            {{ health()?.state_store_mode || 'in-memory' }}
           </div>
         </div>
         <div class="rounded-xl border border-[#76ABAE]/35 bg-white p-4 shadow-xs">
@@ -73,10 +73,10 @@ import {
             </button>
             <button
               type="button"
-              (click)="setPreset('Audit scale-to-zero Cloud Run strategy and write database session manager')"
+              (click)="setPreset('Audit scale-to-zero serverless strategy and write database session manager')"
               class="rounded-md border border-[#76ABAE]/40 bg-[#F5F5F5] px-2.5 py-1 text-[#303841] hover:border-[#FF5722] hover:bg-[#FF5722]/10 transition shadow-2xs font-medium"
             >
-              Cloud Run & DB Session
+              Serverless & DB Session
             </button>
             <button
               type="button"

@@ -2,6 +2,8 @@
 resource "google_service_account" "github_deployer" {
   account_id   = "helm-github-deployer"
   display_name = "GitHub Actions OIDC Deployer for Helm"
+
+  depends_on = [google_project_service.enabled_apis]
 }
 
 resource "google_project_iam_member" "deployer_run_admin" {

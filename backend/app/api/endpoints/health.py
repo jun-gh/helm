@@ -1,4 +1,4 @@
-"""Health and readiness probe endpoints for Cloud Run and local development."""
+"""Health and readiness probe endpoints for Render, containerized, and local development."""
 
 from fastapi import APIRouter
 from pydantic import BaseModel

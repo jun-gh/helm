@@ -121,7 +121,7 @@ class MCPClientRegistry:
                 "checkpoints": [
                     f"1. Analyze constraints and context for: {objective}",
                     "2. Dispatch specialized worker with MCP tool bindings",
-                    "3. Synthesize telemetry and persist checkpoint to Firestore",
+                    "3. Synthesize telemetry and persist checkpoint to state store",
                 ],
             }
         if name == "mcp_research_query":
@@ -141,9 +141,11 @@ class MCPClientRegistry:
                         "avoid sensitive PII in claims."
                     ),
                 ]
-            elif "cloud run" in q_lower or "postgres" in q_lower or "database" in q_lower:
+            elif any(
+                k in q_lower for k in ["render", "serverless", "cloud run", "postgres", "database"]
+            ):
                 findings = [
-                    f"Research for '{query}': Cloud Run scale-to-zero database connectivity.",
+                    f"Research for '{query}': Serverless scale-to-zero database connectivity.",
                     (
                         "Connection pooling: Standard connection pools exhaust "
                         "serverless PostgreSQL limits."
@@ -194,7 +196,9 @@ class MCPClientRegistry:
             if "jwt" in t_lower or "auth" in t_lower:
                 pattern = "FastAPI Security Dependency + PyJWT Decode"
                 readiness = "100% — Stateless Bearer Auth suitable for scale-to-zero"
-            elif "cloud run" in t_lower or "postgres" in t_lower or "database" in t_lower:
+            elif any(
+                k in t_lower for k in ["render", "serverless", "cloud run", "postgres", "database"]
+            ):
                 pattern = "Async SQLAlchemy NullPool Engine Factory"
                 readiness = "100% — NullPool prevents lingering connection pool exhaustion"
             elif "transport" in t_lower or "stdio" in t_lower or "sse" in t_lower:

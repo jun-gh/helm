@@ -16,7 +16,7 @@ from app.core.config import get_settings
 def build_engine() -> AsyncEngine:
     """Build AsyncEngine tailored to SQLite (local) or Neon Serverless Postgres (prod).
 
-    Uses NullPool on Postgres so serverless compute on Cloud Run and Neon can
+    Uses NullPool on Postgres so serverless compute on Render and Neon can
     cleanly scale to zero without holding idle connections open.
     """
     settings = get_settings()

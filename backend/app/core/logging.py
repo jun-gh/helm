@@ -1,4 +1,4 @@
-"""Structured logging configuration for local and Cloud Run environments."""
+"""Structured logging configuration for local and cloud container environments."""
 
 import logging
 import sys
