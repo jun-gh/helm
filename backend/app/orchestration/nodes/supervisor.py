@@ -130,7 +130,7 @@ async def decide_next_agent_with_gemini(
             google_api_key=settings.gemini_api_key,
             temperature=0.0,
             max_retries=0,
-            timeout=8.0,
+            timeout=12.0,
         )
         messages = [
             SystemMessage(
@@ -224,7 +224,7 @@ async def supervisor_node(state: HelmGraphState) -> HelmGraphState:
                 google_api_key=settings.gemini_api_key,
                 temperature=0.2,
                 max_retries=0,
-                timeout=8.0,
+                timeout=12.0,
             )
             worker_context = []
             if research_notes:

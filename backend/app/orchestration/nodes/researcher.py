@@ -76,7 +76,7 @@ async def researcher_node(state: HelmGraphState) -> HelmGraphState:
                 google_api_key=settings.gemini_api_key,
                 temperature=0.3,
                 max_retries=0,
-                timeout=8.0,
+                timeout=12.0,
             )
             messages = [
                 SystemMessage(

@@ -117,7 +117,7 @@ async def coder_node(state: HelmGraphState) -> HelmGraphState:
                 google_api_key=settings.gemini_api_key,
                 temperature=0.2,
                 max_retries=0,
-                timeout=8.0,
+                timeout=12.0,
             )
             context = "\n".join(research_notes) if research_notes else "No prior research."
             messages = [
