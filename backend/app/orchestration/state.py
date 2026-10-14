@@ -13,13 +13,17 @@ class TraceStep(TypedDict):
 
 
 class HelmGraphState(TypedDict, total=False):
-    """State dictionary passed between Supervisor and Worker nodes in LangGraph."""
+    """State dictionary passed between Supervisor and specialized Worker nodes in LangGraph."""
 
     thread_id: str
     objective: str
-    next_agent: Literal["worker", "FINISH"]
+    next_agent: Literal["researcher", "coder", "FINISH"]
     iteration: int
     max_iterations: int
+    completed_workers: list[str]
+    research_notes: list[str]
+    code_artifacts: list[dict[str, Any]]
     tool_results: list[dict[str, Any]]
     trace: list[TraceStep]
+    errors: list[str]
     final_response: str
