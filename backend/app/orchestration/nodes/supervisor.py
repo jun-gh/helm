@@ -25,6 +25,16 @@ def format_gemini_error(exc: Exception, context: str) -> str:
     return f"{context}: {exc.__class__.__name__} ({err_str[:90]})"
 
 
+def is_provider_throttled(errors: list[str]) -> bool:
+    """Return True if an upstream LLM quota (429) or service spike (503) was recorded."""
+    for err in errors:
+        err_upper = err.upper()
+        if any(tok in err_upper for tok in ("429", "503", "RESOURCE_EXHAUSTED", "UNAVAILABLE")):
+            return True
+    return False
+
+
+
 def decide_next_agent_fallback(
     objective: str,
     completed_workers: list[str],
@@ -104,10 +114,11 @@ async def decide_next_agent_with_gemini(
     completed_workers: list[str],
     research_notes: list[str],
     code_artifacts: list[dict],
+    errors: list[str] | None = None,
 ) -> tuple[Literal["researcher", "coder", "FINISH"], str]:
     """Use Google Gemini to select the best worker for the objective with fail-fast retries."""
     settings = get_settings()
-    if not settings.gemini_api_key:
+    if not settings.gemini_api_key or (errors and is_provider_throttled(errors)):
         return decide_next_agent_fallback(objective, completed_workers), ""
 
     try:
@@ -118,7 +129,8 @@ async def decide_next_agent_with_gemini(
             model=settings.gemini_model,
             google_api_key=settings.gemini_api_key,
             temperature=0.0,
-            max_retries=1,
+            max_retries=0,
+            timeout=8.0,
         )
         messages = [
             SystemMessage(
@@ -172,7 +184,7 @@ async def supervisor_node(state: HelmGraphState) -> HelmGraphState:
     # Determine if another worker should be dispatched
     if iteration < max_iterations:
         next_worker, router_err = await decide_next_agent_with_gemini(
-            objective, completed_workers, research_notes, code_artifacts
+            objective, completed_workers, research_notes, code_artifacts, errors
         )
         if router_err and router_err not in errors:
             errors.append(router_err)
@@ -202,7 +214,7 @@ async def supervisor_node(state: HelmGraphState) -> HelmGraphState:
     # All worker passes complete -> synthesize final mission report
     final_response = ""
     synthesis_err = ""
-    if settings.gemini_api_key:
+    if settings.gemini_api_key and not is_provider_throttled(errors):
         try:
             from langchain_core.messages import HumanMessage, SystemMessage
             from langchain_google_genai import ChatGoogleGenerativeAI
@@ -211,7 +223,8 @@ async def supervisor_node(state: HelmGraphState) -> HelmGraphState:
                 model=settings.gemini_model,
                 google_api_key=settings.gemini_api_key,
                 temperature=0.2,
-                max_retries=1,
+                max_retries=0,
+                timeout=8.0,
             )
             worker_context = []
             if research_notes:

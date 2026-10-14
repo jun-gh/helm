@@ -105,7 +105,9 @@ async def coder_node(state: HelmGraphState) -> HelmGraphState:
     # Use Gemini for code generation and architectural scaffolding
     gemini_code = ""
     error_notice = ""
-    if settings.gemini_api_key:
+    from app.orchestration.nodes.supervisor import is_provider_throttled
+
+    if settings.gemini_api_key and not is_provider_throttled(errors):
         try:
             from langchain_core.messages import HumanMessage, SystemMessage
             from langchain_google_genai import ChatGoogleGenerativeAI
@@ -114,7 +116,8 @@ async def coder_node(state: HelmGraphState) -> HelmGraphState:
                 model=settings.gemini_model,
                 google_api_key=settings.gemini_api_key,
                 temperature=0.2,
-                max_retries=1,
+                max_retries=0,
+                timeout=8.0,
             )
             context = "\n".join(research_notes) if research_notes else "No prior research."
             messages = [
