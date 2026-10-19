@@ -16,6 +16,48 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 
+def extract_text_content(content: Any) -> str:
+    """Extract clean string text from LangChain message content.
+
+    Handles plain str, lists of typed blocks (e.g. [{'type': 'text', 'text': '...'}]),
+    and stringified dictionary structures.
+    """
+    if isinstance(content, str):
+        trimmed = content.strip()
+        if (trimmed.startswith("[{") and trimmed.endswith("}]")) or (
+            trimmed.startswith("({'") and trimmed.endswith("'})")
+        ):
+            import ast
+
+            try:
+                parsed = ast.literal_eval(trimmed)
+                if isinstance(parsed, (list, tuple)):
+                    return extract_text_content(parsed)
+            except Exception:
+                pass
+        return content
+
+    if isinstance(content, (list, tuple)):
+        texts: list[str] = []
+        for part in content:
+            if isinstance(part, str):
+                texts.append(part)
+            elif isinstance(part, dict):
+                if "text" in part and isinstance(part["text"], str):
+                    texts.append(part["text"])
+                elif part.get("type") == "text" and "content" in part:
+                    texts.append(str(part["content"]))
+            elif hasattr(part, "text"):
+                texts.append(str(part.text))
+        if texts:
+            return "".join(texts)
+
+    if isinstance(content, dict) and "text" in content:
+        return str(content["text"])
+
+    return str(content)
+
+
 def categorize_gemini_error(
     exc: Exception,
     worker: str,

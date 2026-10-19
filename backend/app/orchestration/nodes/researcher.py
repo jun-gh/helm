@@ -4,7 +4,11 @@ import logging
 from datetime import UTC, datetime
 
 from app.core.config import get_settings
-from app.core.resilience import categorize_gemini_error, execute_with_retry
+from app.core.resilience import (
+    categorize_gemini_error,
+    execute_with_retry,
+    extract_text_content,
+)
 from app.mcp_layer.client import mcp_registry
 from app.orchestration.state import HelmGraphState, TraceStep
 
@@ -109,7 +113,7 @@ async def researcher_node(state: HelmGraphState) -> HelmGraphState:
                     structured_errors.append(struct_err)
                 logger.warning("Gemini researcher synthesis fallback: %s", error_notice)
             elif response:
-                gemini_research = str(response.content)
+                gemini_research = extract_text_content(response.content)
 
         except Exception as exc:
             diag = categorize_gemini_error(

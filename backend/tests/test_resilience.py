@@ -5,6 +5,7 @@ import pytest
 from app.core.resilience import (
     categorize_gemini_error,
     execute_with_retry,
+    extract_text_content,
     is_fatal_non_retryable,
 )
 
@@ -129,3 +130,26 @@ async def test_execute_with_retry_fail_fast_on_auth_error():
     assert diag["code"] == "AUTH_ERROR"
     # Should fail fast after only 1 attempt
     assert attempts == 1
+
+
+def test_extract_text_content_plain_str():
+    assert extract_text_content("Simple string output") == "Simple string output"
+
+
+def test_extract_text_content_from_gemini_parts():
+    raw_parts = [
+        {"type": "text", "text": "### Mission Debrief\nAll systems operational."},
+        {"extras": {"signature": "abc123xyz"}},
+    ]
+    extracted = extract_text_content(raw_parts)
+    assert extracted == "### Mission Debrief\nAll systems operational."
+    assert "signature" not in extracted
+
+
+def test_extract_text_content_from_stringified_repr():
+    stringified = (
+        "[{'type': 'text', 'text': 'Hardened JWT Scaffolding'}, {'extras': {'signature': 'sig'}}]"
+    )
+    extracted = extract_text_content(stringified)
+    assert extracted == "Hardened JWT Scaffolding"
+
