@@ -8,7 +8,11 @@ from datetime import UTC, datetime
 from typing import Literal
 
 from app.core.config import get_settings
-from app.core.resilience import categorize_gemini_error, execute_with_retry
+from app.core.resilience import (
+    categorize_gemini_error,
+    execute_with_retry,
+    extract_text_content,
+)
 from app.orchestration.state import HelmGraphState, TraceStep
 
 logger = logging.getLogger(__name__)
@@ -176,7 +180,7 @@ async def decide_next_agent_with_gemini(
             )
 
         if response:
-            data = extract_next_agent_decision(str(response.content))
+            data = extract_next_agent_decision(extract_text_content(response.content))
             choice = data.get("next_agent", "")
             if choice in ("researcher", "coder"):
                 if choice in completed_workers:
@@ -307,7 +311,7 @@ async def supervisor_node(state: HelmGraphState) -> HelmGraphState:
                     structured_errors.append(synth_diag)
                 logger.warning("Gemini synthesis fallback triggered: %s", synthesis_err)
             elif ai_msg:
-                final_response = str(ai_msg.content)
+                final_response = extract_text_content(ai_msg.content)
         except Exception as exc:
             synthesis_err = format_gemini_error(exc, "Supervisor Synthesizer")
             logger.warning("Gemini synthesis fallback triggered: %s", exc)

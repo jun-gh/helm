@@ -202,3 +202,7 @@ Helm is configured to run at **100% zero cloud cost** by pairing **Render.com** 
    - **Framework Preset**: `Angular`
    - **Root Directory**: `frontend`
 3. Click **Deploy**. Vercel will build the Angular SPA and host it on their global edge network.
+
+## License
+
+MIT
