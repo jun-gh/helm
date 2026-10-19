@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     """Environment-driven configuration for Helm Backend."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(".env", "../.env", "backend/.env"),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",

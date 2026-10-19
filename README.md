@@ -25,24 +25,9 @@
 
 Helm leverages a **Supervisor-Worker** state machine built on LangGraph to coordinate domain-specialized workers with bound MCP tools:
 
-```
-                  ┌──────────────────────┐
-                  │      Supervisor      │ ◄─── Evaluates objective & routing
-                  └──────────┬───────────┘
-                             │
-            ┌────────────────┴────────────────┐
-            ▼                                 ▼
-   ┌─────────────────┐               ┌─────────────────┐
-   │Researcher Worker│               │  Coder Worker   │
-   │  (Domain Notes) │               │(AST Validations)│
-   └────────┬────────┘               └────────┬────────┘
-            │                                 │
-            └────────────────┬────────────────┘
-                             ▼
-                  ┌──────────────────────┐
-                  │ Gemini Synthesizer   │ ───► Final executive mission synthesis
-                  └──────────────────────┘
-```
+<p align="center">
+  <img src="helm_architecture.png" alt="Helm Multi-Worker Orchestration Topology" width="100%" />
+</p>
 
 ### Worker Roles & Capabilities
 1. **Supervisor Router (`supervisor.py`)**:
@@ -59,21 +44,27 @@ Helm leverages a **Supervisor-Worker** state machine built on LangGraph to coord
 
 ---
 
-## 3. Resilience, Quota Recovery & Fail-Fast Architecture
+## 3. Resilience, Fault Tolerance & Best-Practice Error Handling
 
-To guarantee high reliability and avoid UI freezes under strict Google Gemini free-tier rate limits (e.g. 20 requests/day per project) and API demand spikes:
+To guarantee enterprise reliability and optimal user experience under strict Google Gemini free-tier rate limits (e.g. 20 requests/day per project), API demand spikes, or network drops:
 
-1. **Fail-Fast Retry Configuration (`max_retries=1`)**:
-   - Gemini API clients (`google.genai.Client`) are explicitly initialized with `HttpOptions(max_retries=1)`.
-   - Prevents long blocking loops when Google returns `429 RESOURCE_EXHAUSTED` (e.g., `retryDelay: 75789s`) or `503 UNAVAILABLE` demand spikes.
-2. **Transparent Error Surfacing**:
-   - Upstream API exceptions and quota notices are captured in `AgentRunResponse.errors` and rendered immediately in the Angular UI as clear warning banners instead of leaving the user stuck on loading states.
-3. **Graceful Domain Intelligence Fallback**:
-   - If an external LLM call is throttled or unauthenticated, Helm's supervisor and worker nodes fall back to local deterministic domain intelligence.
-   - The orchestration run completes successfully, active workers are recorded, and full trace telemetry is preserved.
-4. **Google AI Studio Key Support**:
-   - Supports Google AI Studio service account-bound authorization keys (keys prefixed with `AQ.`).
-   - Targets the current `gemini-3.8-flash` model via `.env` configuration.
+1. **Maximum 3 Retries with Exponential Backoff (`execute_with_retry`)**:
+   - Upstream LLM calls across the Supervisor Router, Researcher, and Coder execute with a strict retry limit of **3 attempts**.
+   - Applies exponential backoff (`initial_delay=1.0s`, `backoff_factor=1.5`) for transient errors (`503 UNAVAILABLE` high demand, transient `429` rate limits, socket timeouts).
+   - **Fail-Fast for Fatal Errors**: Non-retryable errors such as `401 UNAUTHENTICATED` (invalid/missing API key) or `400 INVALID_ARGUMENT` fail fast immediately on attempt 1 without wasting execution budget or time.
+2. **Frontend Network & Gateway Resilience**:
+   - The Angular `HelmApiService` implements RxJS `retry` with up to **3 attempts** for transient HTTP gateway dropouts (`502 Bad Gateway`, `503 Service Unavailable`, `504 Gateway Timeout`, or network connection drops) before falling back.
+3. **Structured Diagnostics & Quota Classification (`categorize_gemini_error`)**:
+   - Errors are classified into structured diagnostic records with specific status codes, root causes, human-readable titles, and actionable remediation steps (`QUOTA_EXCEEDED`, `SERVICE_UNAVAILABLE`, `AUTH_ERROR`, `TIMEOUT`, `UPSTREAM_ERROR`).
+4. **Rich UI Error & Quota Diagnostics Card**:
+   - Rather than freezing or displaying generic alerts, the dashboard renders a dedicated, color-coded **Resilient AI Execution & Quota Diagnostics** card.
+   - Displays error category badges, worker context, attempt counts (`3/3 Retries Attempted`), actionable recommendations (e.g. switching models in `.env`), and collapsible raw telemetry for debugging.
+5. **Circuit Breaker & Self-Healing Domain Intelligence**:
+   - When an upstream quota or cluster spike is detected, subsequent worker nodes trip a circuit breaker to avoid hanging calls.
+   - The system self-heals by substituting deterministic domain intelligence, ensuring the user always receives valid research findings and code artifacts without interruption.
+6. **Dynamic Model Steering via `.env`**:
+   - Easily switch models (e.g. `gemini-3.8-flash`, `gemini-3.1-flash-lite`, `gemini-2.5-flash`) by setting `GEMINI_MODEL` in your `.env` and restarting the backend server.
+   - The active model is dynamically reflected across backend health endpoints, frontend telemetry cards, worker execution traces, and final mission artifacts.
 
 ---
 

@@ -4,6 +4,7 @@ import logging
 from datetime import UTC, datetime
 
 from app.core.config import get_settings
+from app.core.resilience import categorize_gemini_error, execute_with_retry
 from app.mcp_layer.client import mcp_registry
 from app.orchestration.state import HelmGraphState, TraceStep
 
@@ -53,6 +54,7 @@ async def researcher_node(state: HelmGraphState) -> HelmGraphState:
     research_notes = list(state.get("research_notes", []))
     completed_workers = list(state.get("completed_workers", []))
     errors = list(state.get("errors", []))
+    structured_errors = list(state.get("structured_errors", []))
 
     # Invoke specialized MCP research tool
     mcp_finding = await mcp_registry.invoke_tool(
@@ -89,20 +91,39 @@ async def researcher_node(state: HelmGraphState) -> HelmGraphState:
                     content=f"Objective: {objective}\nMCP Research Data: {mcp_finding}"
                 ),
             ]
-            response = await llm.ainvoke(messages)
-            gemini_research = str(response.content)
-        except Exception as exc:
-            err_str = str(exc)
-            if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
-                error_notice = "Researcher: 429 Quota Exceeded (Free-tier limit reached)."
-            elif "503" in err_str or "UNAVAILABLE" in err_str:
-                error_notice = "Researcher: 503 Service Spike (Google model cluster busy)."
-            else:
-                error_notice = f"Researcher: {exc.__class__.__name__} ({err_str[:90]})"
 
+            async def _call_researcher():
+                return await llm.ainvoke(messages)
+
+            response, struct_err = await execute_with_retry(
+                _call_researcher,
+                worker="Researcher Worker",
+                model=settings.gemini_model,
+                max_retries=3,
+            )
+            if struct_err:
+                error_notice = struct_err["message"]
+                if error_notice not in errors:
+                    errors.append(error_notice)
+                if struct_err not in structured_errors:
+                    structured_errors.append(struct_err)
+                logger.warning("Gemini researcher synthesis fallback: %s", error_notice)
+            elif response:
+                gemini_research = str(response.content)
+
+        except Exception as exc:
+            diag = categorize_gemini_error(
+                exc,
+                worker="Researcher Worker",
+                model=settings.gemini_model,
+                retries_attempted=3,
+            )
+            error_notice = diag["message"]
             logger.warning("Gemini researcher synthesis fallback: %s", exc)
             if error_notice not in errors:
                 errors.append(error_notice)
+            if diag not in structured_errors:
+                structured_errors.append(diag)
 
     if not gemini_research:
         gemini_research = build_dynamic_research(objective)
@@ -113,7 +134,9 @@ async def researcher_node(state: HelmGraphState) -> HelmGraphState:
     if "researcher" not in completed_workers:
         completed_workers.append("researcher")
 
-    trace_detail = "Invoked mcp_research_query and synthesized technical architectural notes."
+    trace_detail = (
+        f"Invoked mcp_research_query and synthesized notes using {settings.gemini_model}."
+    )
     if error_notice:
         trace_detail += f" [{error_notice}]"
 
@@ -134,4 +157,5 @@ async def researcher_node(state: HelmGraphState) -> HelmGraphState:
         "completed_workers": completed_workers,
         "trace": trace,
         "errors": errors,
+        "structured_errors": structured_errors,
     }
