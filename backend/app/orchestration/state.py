@@ -26,4 +26,6 @@ class HelmGraphState(TypedDict, total=False):
     tool_results: list[dict[str, Any]]
     trace: list[TraceStep]
     errors: list[str]
+    structured_errors: list[dict[str, Any]]
     final_response: str
+    gemini_model: str

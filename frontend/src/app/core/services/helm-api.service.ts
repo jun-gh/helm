@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable, timeout } from 'rxjs';
+import { Observable, retry, timeout, timer } from 'rxjs';
 import { environment } from '../../../environments/environment';
 
 export interface HealthStatus {
@@ -34,6 +34,19 @@ export interface CodeArtifact {
   inspector_verdict: string;
 }
 
+export interface ErrorDetail {
+  code: string;
+  status_code: number;
+  worker: string;
+  model: string;
+  title: string;
+  message: string;
+  suggestion: string;
+  retries: number;
+  timestamp: string;
+  raw_details?: string;
+}
+
 export interface AgentRunResponse {
   thread_id: string;
   objective: string;
@@ -44,7 +57,9 @@ export interface AgentRunResponse {
   code_artifacts: CodeArtifact[];
   tool_results: Record<string, unknown>[];
   errors?: string[];
+  structured_errors?: ErrorDetail[];
   state_backend: string;
+  gemini_model?: string;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -66,6 +81,23 @@ export class HelmApiService {
         objective,
         max_iterations: maxIterations,
       })
-      .pipe(timeout({ each: 35000 }));
+      .pipe(
+        timeout({ each: 45000 }),
+        retry({
+          count: 3,
+          delay: (error, retryCount) => {
+            // Retry transient network dropouts, 502 Bad Gateway, 503 Unavailable, 504 Timeout
+            if (
+              error.status === 0 ||
+              error.status === 502 ||
+              error.status === 503 ||
+              error.status === 504
+            ) {
+              return timer(retryCount * 1000);
+            }
+            throw error;
+          },
+        })
+      );
   }
 }

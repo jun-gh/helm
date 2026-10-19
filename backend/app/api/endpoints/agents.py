@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.db.models import OrchestrationRunLog
 from app.db.session import get_db_session
 from app.memory.sql_store import state_store
@@ -24,6 +25,21 @@ class AgentRunRequest(BaseModel):
     max_iterations: int = Field(default=3, ge=1, le=5)
 
 
+class ErrorDetail(BaseModel):
+    """Structured diagnostic record for an AI model or orchestration error."""
+
+    code: str
+    status_code: int
+    worker: str
+    model: str
+    title: str
+    message: str
+    suggestion: str
+    retries: int = 3
+    timestamp: str
+    raw_details: str | None = None
+
+
 class AgentRunResponse(BaseModel):
     """Response payload containing the orchestration output and node trace."""
 
@@ -36,7 +52,9 @@ class AgentRunResponse(BaseModel):
     code_artifacts: list[dict[str, Any]] = Field(default_factory=list)
     tool_results: list[dict[str, Any]]
     errors: list[str] = Field(default_factory=list)
+    structured_errors: list[ErrorDetail] = Field(default_factory=list)
     state_backend: str
+    gemini_model: str = Field(default="gemini-3.8-flash")
 
 
 @router.post("/run", response_model=AgentRunResponse)
@@ -45,6 +63,7 @@ async def run_orchestration(
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> AgentRunResponse:
     """Execute the Helm LangGraph Multi-Worker workflow and persist state."""
+    settings = get_settings()
     thread_id = payload.thread_id or f"helm-{uuid4().hex[:10]}"
 
     initial_state: HelmGraphState = {
@@ -58,7 +77,9 @@ async def run_orchestration(
         "tool_results": [],
         "trace": [],
         "errors": [],
+        "structured_errors": [],
         "final_response": "",
+        "gemini_model": settings.gemini_model,
     }
 
     final_state: HelmGraphState = await helm_graph.ainvoke(initial_state)
@@ -86,7 +107,9 @@ async def run_orchestration(
         code_artifacts=final_state.get("code_artifacts", []),
         tool_results=final_state.get("tool_results", []),
         errors=final_state.get("errors", []),
+        structured_errors=final_state.get("structured_errors", []),
         state_backend=state_store.backend_mode,
+        gemini_model=final_state.get("gemini_model") or settings.gemini_model,
     )
 
 

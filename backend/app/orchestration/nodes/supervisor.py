@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from typing import Literal
 
 from app.core.config import get_settings
+from app.core.resilience import categorize_gemini_error, execute_with_retry
 from app.orchestration.state import HelmGraphState, TraceStep
 
 logger = logging.getLogger(__name__)
@@ -115,11 +116,11 @@ async def decide_next_agent_with_gemini(
     research_notes: list[str],
     code_artifacts: list[dict],
     errors: list[str] | None = None,
-) -> tuple[Literal["researcher", "coder", "FINISH"], str]:
-    """Use Google Gemini to select the best worker for the objective with fail-fast retries."""
+) -> tuple[Literal["researcher", "coder", "FINISH"], str, dict | None]:
+    """Use Google Gemini to select the best worker for the objective with 3-retry resilience."""
     settings = get_settings()
     if not settings.gemini_api_key or (errors and is_provider_throttled(errors)):
-        return decide_next_agent_fallback(objective, completed_workers), ""
+        return decide_next_agent_fallback(objective, completed_workers), "", None
 
     try:
         from langchain_core.messages import HumanMessage, SystemMessage
@@ -154,19 +155,53 @@ async def decide_next_agent_with_gemini(
                 )
             ),
         ]
-        response = await llm.ainvoke(messages)
-        data = extract_next_agent_decision(str(response.content))
-        choice = data.get("next_agent", "FINISH")
-        if choice in ("researcher", "coder", "FINISH"):
-            if choice in completed_workers:
-                return ("coder" if "coder" not in completed_workers else "FINISH"), ""
-            return choice, ""
-    except Exception as exc:
-        err_msg = format_gemini_error(exc, "Supervisor Router")
-        logger.warning("Gemini supervisor routing fallback triggered: %s", exc)
-        return decide_next_agent_fallback(objective, completed_workers), err_msg
 
-    return decide_next_agent_fallback(objective, completed_workers), ""
+        async def _call_router():
+            return await llm.ainvoke(messages)
+
+        response, struct_err = await execute_with_retry(
+            _call_router,
+            worker="Supervisor Router",
+            model=settings.gemini_model,
+            max_retries=3,
+        )
+
+        if struct_err:
+            err_msg = struct_err["message"]
+            logger.warning("Gemini supervisor routing fallback triggered: %s", err_msg)
+            return (
+                decide_next_agent_fallback(objective, completed_workers),
+                err_msg,
+                struct_err,
+            )
+
+        if response:
+            data = extract_next_agent_decision(str(response.content))
+            choice = data.get("next_agent", "")
+            if choice in ("researcher", "coder"):
+                if choice in completed_workers:
+                    return (
+                        ("coder" if "coder" not in completed_workers else "FINISH"),
+                        "",
+                        None,
+                    )
+                return choice, "", None
+            if choice == "FINISH":
+                if not completed_workers:
+                    return decide_next_agent_fallback(objective, completed_workers), "", None
+                return "FINISH", "", None
+
+    except Exception as exc:
+        diag = categorize_gemini_error(
+            exc,
+            worker="Supervisor Router",
+            model=settings.gemini_model,
+            retries_attempted=3,
+        )
+        logger.warning("Gemini supervisor routing fallback triggered: %s", exc)
+        return decide_next_agent_fallback(objective, completed_workers), diag["message"], diag
+
+    return decide_next_agent_fallback(objective, completed_workers), "", None
 
 
 async def supervisor_node(state: HelmGraphState) -> HelmGraphState:
@@ -176,6 +211,7 @@ async def supervisor_node(state: HelmGraphState) -> HelmGraphState:
     max_iterations = state.get("max_iterations", 3)
     trace = list(state.get("trace", []))
     errors = list(state.get("errors", []))
+    structured_errors = list(state.get("structured_errors", []))
     objective = state.get("objective", "")
     completed_workers = list(state.get("completed_workers", []))
     research_notes = list(state.get("research_notes", []))
@@ -183,15 +219,17 @@ async def supervisor_node(state: HelmGraphState) -> HelmGraphState:
 
     # Determine if another worker should be dispatched
     if iteration < max_iterations:
-        next_worker, router_err = await decide_next_agent_with_gemini(
+        next_worker, router_err, router_diag = await decide_next_agent_with_gemini(
             objective, completed_workers, research_notes, code_artifacts, errors
         )
         if router_err and router_err not in errors:
             errors.append(router_err)
+        if router_diag and router_diag not in structured_errors:
+            structured_errors.append(router_diag)
 
         if next_worker in ("researcher", "coder"):
             detail = (
-                f"Dispatched specialized {next_worker} worker "
+                f"Dispatched specialized {next_worker} worker with {settings.gemini_model} "
                 f"(pass {iteration + 1}/{max_iterations})."
             )
             if router_err:
@@ -209,6 +247,7 @@ async def supervisor_node(state: HelmGraphState) -> HelmGraphState:
                 "next_agent": next_worker,
                 "trace": trace,
                 "errors": errors,
+                "structured_errors": structured_errors,
             }
 
     # All worker passes complete -> synthesize final mission report
@@ -250,8 +289,25 @@ async def supervisor_node(state: HelmGraphState) -> HelmGraphState:
                     )
                 ),
             ]
-            ai_msg = await llm.ainvoke(messages)
-            final_response = str(ai_msg.content)
+
+            async def _call_synthesizer():
+                return await llm.ainvoke(messages)
+
+            ai_msg, synth_diag = await execute_with_retry(
+                _call_synthesizer,
+                worker="Supervisor Synthesizer",
+                model=settings.gemini_model,
+                max_retries=3,
+            )
+            if synth_diag:
+                synthesis_err = synth_diag["message"]
+                if synthesis_err not in errors:
+                    errors.append(synthesis_err)
+                if synth_diag not in structured_errors:
+                    structured_errors.append(synth_diag)
+                logger.warning("Gemini synthesis fallback triggered: %s", synthesis_err)
+            elif ai_msg:
+                final_response = str(ai_msg.content)
         except Exception as exc:
             synthesis_err = format_gemini_error(exc, "Supervisor Synthesizer")
             logger.warning("Gemini synthesis fallback triggered: %s", exc)
@@ -274,7 +330,10 @@ async def supervisor_node(state: HelmGraphState) -> HelmGraphState:
         if synthesis_err:
             final_response += f"\n\n*(Notice: {synthesis_err}. Local fallback used.)*"
 
-    finish_detail = f"Unified reports from {completed_workers} into final mission synthesis."
+    finish_detail = (
+        f"Unified reports from {completed_workers} into final mission synthesis "
+        f"({settings.gemini_model})."
+    )
     if synthesis_err:
         finish_detail += f" [{synthesis_err}]"
 
@@ -292,5 +351,6 @@ async def supervisor_node(state: HelmGraphState) -> HelmGraphState:
         "next_agent": "FINISH",
         "trace": trace,
         "errors": errors,
+        "structured_errors": structured_errors,
         "final_response": final_response,
     }

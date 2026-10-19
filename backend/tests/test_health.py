@@ -26,6 +26,8 @@ async def test_health_endpoint() -> None:
     data = response.json()
     assert data["status"] == "ok"
     assert data["database_mode"] == "sqlite-local"
+    assert "gemini_model" in data
+    assert data["gemini_model"] != ""
 
 
 @pytest.mark.asyncio
@@ -60,6 +62,10 @@ async def test_run_multi_worker_orchestration() -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["thread_id"].startswith("helm-")
+    assert "gemini_model" in payload
+    assert payload["gemini_model"] != ""
+    assert "structured_errors" in payload
+    assert isinstance(payload["structured_errors"], list)
     # Verify trace contains supervisor and worker handoffs
     nodes_in_trace = [step["node"] for step in payload["trace"]]
     assert "supervisor" in nodes_in_trace

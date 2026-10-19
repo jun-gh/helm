@@ -4,6 +4,7 @@ import logging
 from datetime import UTC, datetime
 
 from app.core.config import get_settings
+from app.core.resilience import categorize_gemini_error, execute_with_retry
 from app.mcp_layer.client import mcp_registry
 from app.orchestration.state import HelmGraphState, TraceStep
 
@@ -94,6 +95,7 @@ async def coder_node(state: HelmGraphState) -> HelmGraphState:
     research_notes = state.get("research_notes", [])
     completed_workers = list(state.get("completed_workers", []))
     errors = list(state.get("errors", []))
+    structured_errors = list(state.get("structured_errors", []))
 
     # Invoke specialized MCP code inspector
     mcp_code_eval = await mcp_registry.invoke_tool(
@@ -136,20 +138,39 @@ async def coder_node(state: HelmGraphState) -> HelmGraphState:
                     )
                 ),
             ]
-            response = await llm.ainvoke(messages)
-            gemini_code = str(response.content)
-        except Exception as exc:
-            err_str = str(exc)
-            if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
-                error_notice = "Coder: 429 Quota Exceeded (Free-tier limit of 20 req/day reached)."
-            elif "503" in err_str or "UNAVAILABLE" in err_str:
-                error_notice = "Coder: 503 Service Spike (Google model cluster busy)."
-            else:
-                error_notice = f"Coder: {exc.__class__.__name__} ({err_str[:90]})"
 
+            async def _call_coder():
+                return await llm.ainvoke(messages)
+
+            response, struct_err = await execute_with_retry(
+                _call_coder,
+                worker="Coder Worker",
+                model=settings.gemini_model,
+                max_retries=3,
+            )
+            if struct_err:
+                error_notice = struct_err["message"]
+                if error_notice not in errors:
+                    errors.append(error_notice)
+                if struct_err not in structured_errors:
+                    structured_errors.append(struct_err)
+                logger.warning("Gemini coder synthesis fallback: %s", error_notice)
+            elif response:
+                gemini_code = str(response.content)
+
+        except Exception as exc:
+            diag = categorize_gemini_error(
+                exc,
+                worker="Coder Worker",
+                model=settings.gemini_model,
+                retries_attempted=3,
+            )
+            error_notice = diag["message"]
             logger.warning("Gemini coder synthesis fallback: %s", exc)
             if error_notice not in errors:
                 errors.append(error_notice)
+            if diag not in structured_errors:
+                structured_errors.append(diag)
 
     if not gemini_code:
         gemini_code = build_dynamic_code(objective)
@@ -164,7 +185,9 @@ async def coder_node(state: HelmGraphState) -> HelmGraphState:
     if "coder" not in completed_workers:
         completed_workers.append("coder")
 
-    trace_detail = "Invoked mcp_code_inspector and synthesized runnable code scaffolding."
+    trace_detail = (
+        f"Invoked mcp_code_inspector and synthesized runnable code using {settings.gemini_model}."
+    )
     if error_notice:
         trace_detail += f" [{error_notice}]"
 
@@ -185,4 +208,5 @@ async def coder_node(state: HelmGraphState) -> HelmGraphState:
         "completed_workers": completed_workers,
         "trace": trace,
         "errors": errors,
+        "structured_errors": structured_errors,
     }
