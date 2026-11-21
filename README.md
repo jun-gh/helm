@@ -4,6 +4,23 @@
 
 ---
 
+## Table of Contents
+
+- [1. Tech Stack & Architecture](#1-tech-stack--architecture)
+- [2. Multi-Worker Orchestration Topology](#2-multi-worker-orchestration-topology)
+  - [Worker Roles & Capabilities](#worker-roles--capabilities)
+- [3. Resilience, Fault Tolerance & Best-Practice Error Handling](#3-resilience-fault-tolerance--best-practice-error-handling)
+- [4. Repository Structure](#4-repository-structure)
+- [5. Quick Start (Local Development)](#5-quick-start-local-development)
+  - [5.1 Backend Setup (`backend/`)](#51-backend-setup-backend)
+  - [5.2 Frontend Setup (`frontend/`)](#52-frontend-setup-frontend)
+- [6. Cloud Deployment (Render.com + Vercel)](#6-cloud-deployment-rendercom--vercel)
+  - [6.1 Backend Deployment on Render.com](#61-backend-deployment-on-rendercom)
+  - [6.2 Frontend Deployment on Vercel](#62-frontend-deployment-on-vercel)
+- [7. License & Commercial Inquiries](#7-license--commercial-inquiries)
+
+---
+
 ## 1. Tech Stack & Architecture
 
 | Layer | Technology | Cost / Scaling Profile |
@@ -68,20 +85,7 @@ To guarantee enterprise reliability and optimal user experience under strict Goo
 
 ---
 
-## 4. Design System & Frontend Architecture
-
-The frontend is built using **Angular 19 Standalone Components** and **Signals** (`signal`, `inject`), styled with a 4-color design system prioritized left-to-right by visual dominance:
-
-| Priority | Hex Code | Role | Usage |
-| :--- | :--- | :--- | :--- |
-| **1. Leftmost** | `#F5F5F5` | **Canvas** | Page background, header container backdrop, input surfaces, trace rows |
-| **2. Second** | `#76ABAE` | **Structure** | Card borders (`#76ABAE`/35), Researcher findings panel, secondary badges |
-| **3. Third** | `#303841` | **Typography** | High-contrast typography, headings, labels, and dark code block backgrounds |
-| **4. Rightmost**| `#FF5722` | **Actions** | Primary CTA buttons (`Launch Orchestration Run`), brand logo mark, alert banners |
-
----
-
-## 5. Repository Structure
+## 4. Repository Structure
 
 ```text
 helm/
@@ -114,9 +118,9 @@ helm/
 
 ---
 
-## 6. Quick Start (Local Development)
+## 5. Quick Start (Local Development)
 
-### 6.1 Backend Setup (`backend/`)
+### 5.1 Backend Setup (`backend/`)
 
 1. Navigate to `backend/` and create your local `.env`:
    ```bash
@@ -140,7 +144,7 @@ helm/
    - Interactive OpenAPI docs: `http://localhost:8000/docs`
    - Health check: `http://localhost:8000/api/v1/health`
 
-### 6.2 Frontend Setup (`frontend/`)
+### 5.2 Frontend Setup (`frontend/`)
 
 1. Install dependencies and start the Angular development server:
    ```bash
@@ -152,11 +156,11 @@ helm/
 
 ---
 
-## 7. Cloud Deployment (Render.com + Vercel)
+## 6. Cloud Deployment (Render.com + Vercel)
 
 Helm is configured to run at **100% zero cloud cost** by pairing **Render.com** (Backend Web Service) with **Vercel** (Frontend SPA) and **Neon** (Serverless Postgres).
 
-### 7.1 Backend Deployment on Render.com
+### 6.1 Backend Deployment on Render.com
 
 #### Option A: Using the Blueprint (`render.yaml`)
 1. In the [Render Dashboard](https://dashboard.render.com/), click **New +** > **Blueprint**.
@@ -189,7 +193,7 @@ Helm is configured to run at **100% zero cloud cost** by pairing **Render.com** 
 
 ---
 
-### 7.2 Frontend Deployment on Vercel
+### 6.2 Frontend Deployment on Vercel
 
 1. Update the production API URL in [`frontend/src/environments/environment.prod.ts`](file:///Users/martinabanes/Sites/ai-skill/helm/frontend/src/environments/environment.prod.ts):
    ```typescript
@@ -203,6 +207,13 @@ Helm is configured to run at **100% zero cloud cost** by pairing **Render.com** 
    - **Root Directory**: `frontend`
 3. Click **Deploy**. Vercel will build the Angular SPA and host it on their global edge network.
 
-## License
+---
 
-MIT
+## 7. License & Commercial Inquiries
+
+Copyright © 2026-present Martin Abanes. All rights reserved.
+
+**Non-Commercial Use**: Free for personal inspection, research, and non-commercial evaluation.  
+**Commercial Use**: Commercial deployment, white-labeling, or client integration requires an explicit commercial agreement or engagement.
+
+For freelance consulting or commercial licensing inquiries, contact Martin Abanes at [miabanes@gmail.com](mailto:miabanes@gmail.com).
